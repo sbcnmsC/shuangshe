@@ -1,0 +1,41 @@
+name: DualCam
+
+options:
+  bundleIdPrefix: com.dualcam
+  deploymentTarget:
+    iOS: "16.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  DualCam:
+    type: application
+    platform: iOS
+    sources:
+      - path: .
+        excludes:
+          - README.md
+          - build.yml
+          - project.yml
+          - Config
+    info:
+      path: Config/Info.plist
+      properties:
+        CFBundleDisplayName: DualCam
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSCameraUsageDescription: 需要使用相机进行双摄像头录制
+        NSMicrophoneUsageDescription: 需要使用麦克风录制声音
+        NSPhotoLibraryAddUsageDescription: 需要把录制的视频保存到相册
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.dualcam.app
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGNING_ALLOWED: NO
