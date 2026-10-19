@@ -3,7 +3,7 @@ name: DualCam
 options:
   bundleIdPrefix: com.dualcam
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "17.0"
 
 settings:
   base:
