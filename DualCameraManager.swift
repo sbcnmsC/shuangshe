@@ -346,11 +346,12 @@ final class DualCameraManager: NSObject, ObservableObject {
             let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
             return d.width * d.height
         }
+        let fpsD = Double(fps)
         let candidates = device.formats.filter { f in
             guard f.isMultiCamSupported else { return false }
             let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
             guard d.width <= maxWidth else { return false }
-            return f.videoSupportedFrameRateRanges.contains { $0.minFrameRate <= fps && $0.maxFrameRate >= fps }
+            return f.videoSupportedFrameRateRanges.contains { $0.minFrameRate <= fpsD && $0.maxFrameRate >= fpsD }
         }
         guard let best = candidates.max(by: { area($0) < area($1) }) else {
             throw NSError(domain: "DualCam", code: 1,
