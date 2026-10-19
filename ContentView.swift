@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 enum CaptureKind: String, CaseIterable, Identifiable {
     case photo = "拍照"
