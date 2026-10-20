@@ -67,3 +67,14 @@
 - `project.yml`：XcodeGen 工程描述（含 3 个权限说明，仅竖屏）
 - `.github/workflows/build.yml`：云端编译并发布 Release 的流程（macos-26 / Xcode 26）
 - `LayerHost.swift`：旧版预览用的文件，现在已经用不到，可以删掉（留着也不影响编译）
+
+
+## 相机增强分支（2026-10）
+
+分支 `feature/live-photo-gallery-camera-ux` 增加：
+- 相机模式增加「实况」：录制约 3 秒合成画面，尝试生成 Live Photo 配对静态图和 MOV，使用 PhotoKit 保存。
+- 增加系统照片图库入口：缩略图按需加载；可查看照片、识别视频，并从视频菜单选择「转换为实况照片」。
+- 新增 `LivePhotoConverter.swift`，负责提取静帧、写入 content identifier / still-image-time 元数据并保存配对资源。
+- 新增 `MediaGalleryView.swift`，需要照片读取权限；`project.yml` 已补充权限用途说明。
+
+注意：实况照片元数据与 PhotoKit 导入行为受 iOS 版本影响，必须在真实 iPhone 上验证。当前环境未运行 Xcode 真机测试；如果系统拒绝配对资源，会显示转换错误，拍摄模式会回退保存普通视频，不会把普通视频伪装成 Live Photo。
