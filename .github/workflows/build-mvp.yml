@@ -27,6 +27,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          # -target 构建不能配 -derivedDataPath（xcodebuild 要求 scheme）；产物落在默认 build/Release-iphoneos
           for attempt in 1 2 3; do
             if xcodebuild \
               -project DualCam.xcodeproj \
@@ -34,7 +35,6 @@ jobs:
               -configuration Release \
               -sdk iphoneos \
               -destination 'generic/platform=iOS' \
-              -derivedDataPath build \
               CODE_SIGNING_ALLOWED=NO \
               CODE_SIGNING_REQUIRED=NO \
               CODE_SIGN_IDENTITY="" \
