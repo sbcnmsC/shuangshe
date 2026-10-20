@@ -1,0 +1,99 @@
+name: Build Assistant-Generated DualCam
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.assistant-source-parts/**'
+      - '.github/workflows/build-assistant-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reassemble generated Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import hashlib
+          from pathlib import Path
+
+          parts = sorted(Path(".assistant-source-parts").glob("part-*.b64"))
+          if len(parts) != 5:
+              raise SystemExit(f"Expected 5 archive parts; found {len(parts)}")
+          encoded = "".join(p.read_text(encoding="ascii").strip() for p in parts)
+          archive = base64.b64decode(encoded, validate=True)
+          digest = hashlib.sha256(archive).hexdigest()
+          expected = "2b882031ff44f2a48946ca35ee3fad0c4465993766176ad9d0dedd1c98e6fdd3"
+          if digest != expected:
+              raise SystemExit(f"Source archive checksum mismatch: {digest}")
+          Path("/tmp/DualCam-source.tar.xz").write_bytes(archive)
+          print(f"Verified source archive: {len(archive)} bytes, sha256={digest}")
+          PY
+          mkdir -p source
+          tar -xJf /tmp/DualCam-source.tar.xz -C source
+          test -f source/DualCam/DualCam.xcodeproj/project.pbxproj
+          (cd source && zip -qry ../DualCam-Assistant-Source.zip DualCam)
+
+      - name: Show Apple toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Build generated Xcode project (unsigned)
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project source/DualCam/DualCam.xcodeproj \
+            -scheme DualCam \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(find build/Build/Products -maxdepth 3 -name 'DualCam.app' -print -quit)"
+          test -n "$APP"
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry DualCam-Assistant.ipa Payload
+          ls -lh DualCam-Assistant.ipa DualCam-Assistant-Source.zip
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DualCam-Assistant-build
+          path: |
+            DualCam-Assistant.ipa
+            DualCam-Assistant-Source.zip
+          if-no-files-found: error
+
+      - name: Publish Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="assistant-build-${{ github.run_number }}"
+          gh release create "$TAG" DualCam-Assistant.ipa DualCam-Assistant-Source.zip \
+            --repo "${{ github.repository }}" \
+            --title "DualCam Assistant $TAG" \
+            --notes "Assistant-generated native Xcode project. IPA is unsigned and must be signed with your Apple ID before installing. Source archive sha256: 2b882031ff44f2a48946ca35ee3fad0c4465993766176ad9d0dedd1c98e6fdd3. Commit: ${{ github.sha }}" \
+            --latest
