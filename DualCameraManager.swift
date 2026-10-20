@@ -19,7 +19,7 @@ final class DualCameraManager: NSObject, ObservableObject {
     @Published var mode: CameraMode = .frontBack { didSet { onModeChanged() } }
     @Published var layout: LayoutMode = .pip { didSet { syncRenderState() } }
     @Published var swapped = false { didSet { onSwapChanged() } }
-    @Published var saveRaw = true            // 同时保存两路原片
+    @Published var saveRaw = false           // 默认不同时写入两路原片，降低多编码器负载
     @Published var isReady = false
     @Published var isRecording = false
     @Published var elapsed = 0
@@ -39,7 +39,7 @@ final class DualCameraManager: NSObject, ObservableObject {
     @Published var fps: FPSOption = .f30 { didSet { onQualityChanged() } }
     @Published private(set) var canvasSize = CGSize(width: 1080, height: 1920)
     @Published private(set) var activeFPS = 30
-    @Published var lowLight = true { didSet { applyFrameDuration() } }
+    @Published var lowLight = false { didSet { applyFrameDuration() } }
     @Published var stabilize = true { didSet { applyConnectionOptions() } }
     @Published var mirrorFront = true { didSet { applyConnectionOptions() } }
     @Published var showGrid = false
@@ -236,7 +236,12 @@ final class DualCameraManager: NSObject, ObservableObject {
 
     private func updateCanvas() {
         guard !suppress else { return }
-        let size = Compositor.canvasSize(aspect: aspect, resolution: resolution, source: sourceSizeA)
+        // The composite must not upscale the lower-resolution camera in a pair.
+        let pairSource = CGSize(
+            width: min(sourceSizeA.width, sourceSizeB.width),
+            height: min(sourceSizeA.height, sourceSizeB.height)
+        )
+        let size = Compositor.canvasSize(aspect: aspect, resolution: resolution, source: pairSource)
         if size != canvasSize { canvasSize = size }
         syncRenderState()
     }
@@ -368,9 +373,9 @@ final class DualCameraManager: NSObject, ObservableObject {
             for f in fpsList {
                 failure = build(o, maxWidth: width, fps: f)
                 if failure == nil { success = true; usedFPS = f; break outer }
-                if case .other = failure! { break }
+                // Format availability at 4K / 60 fps varies by device. Retry lower
+                // formats and frame rates before surfacing a hard failure.
             }
-            if case .other = failure! { break }
         }
 
         guard success else {
@@ -942,13 +947,20 @@ final class DualCameraManager: NSObject, ObservableObject {
     func makeFilterThumbnails(_ completion: @escaping ([FilterPreset: UIImage]) -> Void) {
         frameQueue.async {
             self.lock.lock()
-            let buf = self.renderState.swapped ? self.bufferB : self.bufferA
+            let a = self.bufferA
+            let b = self.bufferB
+            var snapshot = self.renderState
             self.lock.unlock()
-            guard let buf else {
+            guard let a, let b else {
                 DispatchQueue.main.async { completion([:]) }
                 return
             }
-            let base = CIImage(cvPixelBuffer: buf)
+
+            // Preview the actual current composite layout. Remove the active filter first,
+            // so every preset is compared against the same live frame.
+            snapshot.filter = .original
+            snapshot.filterStrength = 0
+            let base = Compositor.render(a: a, b: b, state: snapshot)
             let e = base.extent
             let aspect: CGFloat = 3.0 / 4.0
             var crop = e
@@ -959,7 +971,7 @@ final class DualCameraManager: NSObject, ObservableObject {
                 let h = e.width / aspect
                 crop = CGRect(x: e.minX, y: e.midY - h / 2, width: e.width, height: h)
             }
-            let scale = 120 / crop.width
+            let scale = min(120 / crop.width, 160 / crop.height)
             let small = base.cropped(to: crop)
                 .transformed(by: CGAffineTransform(translationX: -crop.minX, y: -crop.minY))
                 .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
