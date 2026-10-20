@@ -1,6 +1,7 @@
 import Photos
 import SwiftUI
 import AVFoundation
+import AVKit
 
 struct MediaGalleryView: View {
     @Environment(\.dismiss) private var dismiss
@@ -8,6 +9,8 @@ struct MediaGalleryView: View {
     @State private var selectedAsset: PHAsset?
     @State private var previewImage: UIImage?
     @State private var showImagePreview = false
+    @State private var videoPlayer: AVPlayer?
+    @State private var showVideoPreview = false
     @State private var convertingID: String?
     @State private var statusMessage: String?
     @State private var showStatus = false
@@ -96,12 +99,32 @@ struct MediaGalleryView: View {
                 get: { selectedAsset != nil && selectedAsset?.mediaType == .video && convertingID == nil },
                 set: { if !$0 { selectedAsset = nil } }
             ), titleVisibility: .visible) {
+                Button("播放视频") {
+                    if let asset = selectedAsset { play(asset) }
+                }
                 Button("转换为实况照片") {
                     if let asset = selectedAsset { convert(asset) }
                 }
                 Button("取消", role: .cancel) { selectedAsset = nil }
             } message: {
                 Text("将截取视频中间最多 3 秒，生成可在系统照片中按住播放的实况照片。")
+            }
+            .sheet(isPresented: $showVideoPreview, onDismiss: {
+                videoPlayer?.pause()
+                videoPlayer = nil
+            }) {
+                if let videoPlayer {
+                    NavigationStack {
+                        VideoPlayer(player: videoPlayer)
+                            .background(Color.black.ignoresSafeArea())
+                            .toolbar {
+                                ToolbarItem(placement: .topBarTrailing) {
+                                    Button("完成") { showVideoPreview = false }
+                                }
+                            }
+                    }
+                    .preferredColorScheme(.dark)
+                }
             }
             .sheet(isPresented: $showImagePreview) {
                 if let previewImage {
@@ -172,6 +195,25 @@ struct MediaGalleryView: View {
             DispatchQueue.main.async {
                 previewImage = image
                 showImagePreview = true
+            }
+        }
+    }
+
+    private func play(_ asset: PHAsset) {
+        selectedAsset = nil
+        let options = PHVideoRequestOptions()
+        options.deliveryMode = .automatic
+        options.isNetworkAccessAllowed = true
+        PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { item, info in
+            DispatchQueue.main.async {
+                guard let item else {
+                    statusMessage = info?[PHImageErrorKey] as? String ?? "无法播放此视频。"
+                    showStatus = true
+                    return
+                }
+                videoPlayer = AVPlayer(playerItem: item)
+                showVideoPreview = true
+                videoPlayer?.play()
             }
         }
     }
