@@ -1374,6 +1374,7 @@ extension DualCameraManager: AVCaptureVideoDataOutputSampleBufferDelegate,
             lock.lock()
             bufferB = pixelBuffer
             let writeRaw = rawStreamsRecording
+            let rate = recordFPS
             lock.unlock()
             if writeRaw {
                 frameQueue.async { [weak self] in
@@ -1382,7 +1383,7 @@ extension DualCameraManager: AVCaptureVideoDataOutputSampleBufferDelegate,
                         writer.start(width: CVPixelBufferGetWidth(pixelBuffer),
                                      height: CVPixelBufferGetHeight(pixelBuffer), at: pts,
                                      pixelFormat: CVPixelBufferGetPixelFormatType(pixelBuffer),
-                                     fps: self.recordFPS)
+                                     fps: rate)
                     }
                     writer.append(pixelBuffer, at: pts)
                 }
@@ -1392,7 +1393,6 @@ extension DualCameraManager: AVCaptureVideoDataOutputSampleBufferDelegate,
 
         lock.lock()
         if output === outputA { bufferA = pixelBuffer }
-        else if output === outputB { bufferB = pixelBuffer }
         let a = bufferA, b = bufferB
         let state = renderState
         let rate = recordFPS
