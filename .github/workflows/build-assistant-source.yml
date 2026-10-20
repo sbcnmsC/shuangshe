@@ -43,6 +43,7 @@ jobs:
           tar -xJf /tmp/DualCam-source.tar.xz -C source
           python3 - <<'PY'
           from pathlib import Path
+
           project = Path("source/DualCam/DualCam.xcodeproj/project.pbxproj")
           text = project.read_text()
           bad = 'buildConfigurationList = F10000000000000000000002 /* Build configuration list for PBXNativeTarget "DualCam" */;'
@@ -55,6 +56,31 @@ jobs:
               print("Target build configuration list reference is already fixed.")
           else:
               raise SystemExit("Could not locate the target build configuration list reference.")
+
+          manager = Path("source/DualCam/DualCam/Camera/CameraManager.swift")
+          code = manager.read_text()
+          fixes = [
+              (
+                  "let bias = Float(min(device.maxExposureTargetBias, max(device.minExposureTargetBias, value)))",
+                  "let requestedBias = Float(value)\n            let bias = min(device.maxExposureTargetBias, max(device.minExposureTargetBias, requestedBias))",
+              ),
+              (
+                  "let boundedISO = Float(min(device.activeFormat.maxISO, max(device.activeFormat.minISO, iso)))",
+                  "let requestedISO = Float(iso)\n            let boundedISO = min(device.activeFormat.maxISO, max(device.activeFormat.minISO, requestedISO))",
+              ),
+          ]
+          for old, new in fixes:
+              if old in code:
+                  code = code.replace(old, new)
+              elif new not in code:
+                  raise SystemExit(f"Could not locate expected camera-parameter expression: {old}")
+          manager.write_text(code)
+
+          panel = Path("source/DualCam/DualCam/Views/CameraToolsPanel.swift")
+          panel_code = panel.read_text()
+          panel_code = panel_code.replace("onEditingChanged: { manager.", "onEditingChanged: { _ in manager.")
+          panel.write_text(panel_code)
+          print("Fixed Swift numeric conversions and slider callback signatures.")
           PY
           test -f source/DualCam/DualCam.xcodeproj/project.pbxproj
           (cd source && zip -qry ../DualCam-Assistant-Source.zip DualCam)
