@@ -37,3 +37,17 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY='' \
             build
+      - name: Package unsigned IPA
+        run: |
+          APP=$(find build/Build/Products -maxdepth 3 -name "DualCam.app" | head -n 1)
+          test -n "$APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry DualCam-PR.ipa Payload
+          ls -lh DualCam-PR.ipa
+      - name: Upload candidate IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: DualCam-PR-ipa
+          path: DualCam-PR.ipa
+          retention-days: 14
