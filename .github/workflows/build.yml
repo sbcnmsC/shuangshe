@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths-ignore:
       - '.assistant-source-parts/**'
+      - 'AssistantGeneratedDualCam/**'
       - '.github/workflows/build-assistant-source.yml'
       - '.github/workflows/build.yml'
   workflow_dispatch:
