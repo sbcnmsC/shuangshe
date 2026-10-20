@@ -79,8 +79,23 @@ jobs:
           panel = Path("source/DualCam/DualCam/Views/CameraToolsPanel.swift")
           panel_code = panel.read_text()
           panel_code = panel_code.replace("onEditingChanged: { manager.", "onEditingChanged: { _ in manager.")
+
+          shutter_old = '            pickerRow("快门", selection: bindingShutter, options: ["1/4000", "1/1000", "1/250", "1/120", "1/60", "1/30", "1/15", "1/8", "1/4", "1/2", "1s"])'
+          shutter_new = """            HStack {
+                          Text("快门").font(.subheadline)
+                          Spacer()
+                          Picker("快门", selection: bindingShutter) {
+                              ForEach(["1/4000", "1/1000", "1/250", "1/120", "1/60", "1/30", "1/15", "1/8", "1/4", "1/2", "1s"], id: \\.self) { item in
+                                  Text(item).tag(item)
+                              }
+                          }.pickerStyle(.menu).tint(.white)
+                      }"""
+          if shutter_old in panel_code:
+              panel_code = panel_code.replace(shutter_old, shutter_new)
+          elif shutter_new.strip() not in panel_code:
+              raise SystemExit("Could not locate the shutter picker row.")
           panel.write_text(panel_code)
-          print("Fixed Swift numeric conversions and slider callback signatures.")
+          print("Fixed Swift numeric conversions, slider callbacks, and shutter picker.")
           PY
           test -f source/DualCam/DualCam.xcodeproj/project.pbxproj
           (cd source && zip -qry ../DualCam-Assistant-Source.zip DualCam)
