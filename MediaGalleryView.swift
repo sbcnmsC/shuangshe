@@ -5,7 +5,6 @@ import AVFoundation
 struct MediaGalleryView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var assets: [PHAsset] = []
-    @State private var thumbnails: [String: UIImage] = [:]
     @State private var selectedAsset: PHAsset?
     @State private var previewImage: UIImage?
     @State private var showImagePreview = false
@@ -33,7 +32,7 @@ struct MediaGalleryView: View {
                             ForEach(assets, id: \.localIdentifier) { asset in
                                 Button { select(asset) } label: {
                                     ZStack(alignment: .bottomTrailing) {
-                                        GalleryThumbnail(image: thumbnails[asset.localIdentifier])
+                                        GalleryThumbnail(asset: asset)
                                             .aspectRatio(0.78, contentMode: .fill)
                                             .frame(maxWidth: .infinity)
                                             .clipped()
@@ -153,18 +152,7 @@ struct MediaGalleryView: View {
         var next: [PHAsset] = []
         result.enumerateObjects { asset, _, _ in next.append(asset) }
         assets = next
-        thumbnails.removeAll(keepingCapacity: true)
-        for asset in next {
-            let size = CGSize(width: 360, height: 460)
-            let options = PHImageRequestOptions()
-            options.deliveryMode = .opportunistic
-            options.resizeMode = .fast
-            PHImageManager.default().requestImage(for: asset, targetSize: size,
-                                                  contentMode: .aspectFill, options: options) { image, _ in
-                guard let image else { return }
-                DispatchQueue.main.async { thumbnails[asset.localIdentifier] = image }
-            }
-        }
+
     }
 
     private func select(_ asset: PHAsset) {
@@ -251,7 +239,9 @@ struct MediaGalleryView: View {
 }
 
 private struct GalleryThumbnail: View {
-    let image: UIImage?
+    let asset: PHAsset
+    @State private var image: UIImage?
+    @State private var requestID: PHImageRequestID?
 
     var body: some View {
         GeometryReader { geometry in
@@ -268,6 +258,25 @@ private struct GalleryThumbnail: View {
                         .foregroundStyle(.white.opacity(0.35))
                 }
             }
+        }
+        .onAppear {
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .fastFormat
+            options.resizeMode = .fast
+            options.isNetworkAccessAllowed = true
+            requestID = PHImageManager.default().requestImage(
+                for: asset,
+                targetSize: CGSize(width: 360, height: 460),
+                contentMode: .aspectFill,
+                options: options
+            ) { result, info in
+                guard let result, (info?[PHImageResultIsDegradedKey] as? Bool) != true else { return }
+                DispatchQueue.main.async { image = result }
+            }
+        }
+        .onDisappear {
+            if let requestID { PHImageManager.default().cancelImageRequest(requestID) }
+            requestID = nil
         }
     }
 }
