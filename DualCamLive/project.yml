@@ -13,9 +13,13 @@ targets:
     type: application
     platform: iOS
     sources:
-      - path: DualCamLive
+      - path: .
         excludes:
           - App/Info.plist
+          - project.yml
+          - README.md
+          - .gitignore
+          - THIRD_PARTY_NOTICES.md
     info:
       path: DualCamLive/App/Info.plist
     settings:
