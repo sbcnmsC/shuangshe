@@ -1,9 +1,9 @@
 name: Build IPA
 
-# 推送到 main 分支，或在 Actions 页面手动点「Run workflow」，都会自动编译并发布一个 Release。
+# 推送到 main / build5-v2 分支，或在 Actions 页面手动点「Run workflow」，都会自动编译并发布一个 Release。
 on:
   push:
-    branches: [main]
+    branches: [main, build5-v2]
     paths-ignore:
       - '.assistant-source-parts/**'
       - 'AssistantGeneratedDualCam/**'
