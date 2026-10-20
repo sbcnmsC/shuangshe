@@ -87,18 +87,9 @@ enum Compositor {
             ])
         }
 
-        // 柔和的投影，让小窗从画面里「浮」起来
-        let shadowMask = mask
-            .applyingGaussianBlur(sigma: Double(16 * k))
-            .transformed(by: CGAffineTransform(translationX: 0, y: -8 * k))
-        let shadowColor = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.32))
-            .cropped(to: shadowMask.extent)
-        let shadow = shadowColor.applyingFilter("CIBlendWithAlphaMask", parameters: [
-            kCIInputBackgroundImageKey: CIImage.empty(),
-            kCIInputMaskImageKey: shadowMask
-        ])
-
-        return layer.composited(over: shadow)
+        // Skip per-frame Gaussian shadow blur. The inset border provides separation
+        // without an extra blur pass on every preview/recording frame.
+        return layer
     }
 
     /// 等比放大并居中裁切，铺满目标矩形（等同 resizeAspectFill）。
