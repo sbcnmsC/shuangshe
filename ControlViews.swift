@@ -292,6 +292,8 @@ struct ControlPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
         toggleRow("保存两路原片", isOn: $cam.saveRaw, disabled: cam.isRecording)
+        toggleRow("实况照片（拍照）", isOn: $cam.livePhoto)
+        toggleRow("录像转实况", isOn: $cam.videoAsLive)
         toggleRow("弱光增亮（暗处自动降帧提亮）", isOn: $cam.lowLight)
         toggleRow("视频防抖", isOn: $cam.stabilize)
         toggleRow("前置镜像", isOn: $cam.mirrorFront, disabled: cam.mode != .frontBack)

@@ -46,6 +46,10 @@ final class DualCameraManager: NSObject, ObservableObject {
     @Published var timerSeconds = 0
     @Published var countdown: Int?
     @Published var flashOn = false
+    /// 拍照生成实况照片（Live Photo）：快门后采集约 1.5 秒合成画面作配对视频。
+    @Published var livePhoto = false
+    /// 录像结束时转存为实况照片（截最后 3 秒 + 最后一帧作主图）。
+    @Published var videoAsLive = false
 
     // 相机参数（作用于主画面镜头）
     @Published var ev: Float = 0 { didSet { applyActiveSettings() } }
@@ -128,6 +132,8 @@ final class DualCameraManager: NSObject, ObservableObject {
     private var writerB: MovieWriter?
     private var canvasPool: CVPixelBufferPool?
     private var poolSize = CGSize.zero
+    /// 实况照片采集器（capture 期间由帧回调喂合成帧，内部有锁保护）。
+    private var liveCollector: LivePhotoCollector?
 
     // 只在 paramQueue 上访问：点按对焦后保持对焦，直到画面内容明显变化
     private var focusHeld = false
@@ -1043,9 +1049,11 @@ final class DualCameraManager: NSObject, ObservableObject {
 
     /// 同时拍下两颗摄像头当前画面：合成图（按当前布局 + 滤镜）+ 可选两张原图。
     /// 开了闪光灯时，先打光约 0.18s 让传感器稳定，再抓帧保存。
+    /// 实况照片开启时：快门后采集约 1.5 秒合成画面作为配对视频，保存为 Live Photo。
     private func captureNow() {
         let useFlash = flashOn && torchCapable
         let raw = saveRaw
+        let doLive = livePhoto
 
         DispatchQueue.global(qos: .userInitiated).async {
             if useFlash {
@@ -1075,7 +1083,51 @@ final class DualCameraManager: NSObject, ObservableObject {
                     if let d = self.jpegData(img, rect: img.extent) { datas.append(d) }
                 }
             }
+            guard !datas.isEmpty else {
+                self.setStatus("拍照失败")
+                return
+            }
+
+            // 实况照片：快门后采集 1.5 秒合成帧作配对视频
+            if doLive {
+                let collector = LivePhotoCollector()
+                self.liveCollector = collector
+                collector.begin()
+                Thread.sleep(forTimeInterval: collector.duration + 0.2)
+                self.liveCollector = nil
+                if let videoURL = collector.finish() {
+                    self.saveLivePhoto(jpeg: datas[0], videoURL: videoURL)
+                    return
+                }
+                // 采集失败降级：只保存普通照片
+            }
             self.savePhotos(datas)
+        }
+    }
+
+    /// 保存为 Live Photo；若系统拒绝（格式 / 时长不符）则降级保存普通照片。
+    private func saveLivePhoto(jpeg: Data, videoURL: URL) {
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { [weak self] status in
+            guard let self else { return }
+            guard status == .authorized || status == .limited else {
+                self.setStatus("请在「设置」中允许保存到相册", autoClear: false)
+                return
+            }
+            PHPhotoLibrary.shared().performChanges {
+                let req = PHAssetCreationRequest.forAsset()
+                req.addResource(with: .photo, data: jpeg, options: nil)
+                let opts = PHAssetResourceCreationOptions()
+                opts.shouldMoveFile = true
+                req.addResource(with: .pairedVideo, fileURL: videoURL, options: opts)
+            } completionHandler: { ok, error in
+                try? FileManager.default.removeItem(at: videoURL)
+                if ok {
+                    self.setStatus("已保存实况照片")
+                } else {
+                    self.savePhotos([jpeg])
+                    self.setStatus("实况照片保存失败，已存普通照片")
+                }
+            }
         }
     }
 
@@ -1158,11 +1210,33 @@ final class DualCameraManager: NSObject, ObservableObject {
         }
     }
 
+    /// 合成视频是 urls 的第一个。录像转实况开启时：截最后 3 秒作配对视频 + 最后一帧作主图。
     private func saveVideos(_ urls: [URL]) {
         guard !urls.isEmpty else {
             setStatus("录像失败，没有生成视频")
             return
         }
+        let asLive = videoAsLive
+        let raw = saveRaw
+        guard asLive, let composite = urls.first else {
+            savePlainVideos(urls)
+            return
+        }
+        exportLivePhoto(from: composite) { [weak self] jpeg, paired in
+            guard let self else { return }
+            if let jpeg, let paired {
+                self.saveLivePhoto(jpeg: jpeg, videoURL: paired)
+            } else {
+                self.savePlainVideos(urls)
+            }
+            // 两路原片照常保存
+            let others = raw ? Array(urls.dropFirst()) : []
+            if !others.isEmpty { self.savePlainVideos(others) }
+        }
+    }
+
+    private func savePlainVideos(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { [weak self] status in
             guard let self else { return }
             guard status == .authorized || status == .limited else {
@@ -1175,6 +1249,34 @@ final class DualCameraManager: NSObject, ObservableObject {
                 urls.forEach { try? FileManager.default.removeItem(at: $0) }
                 self.setStatus(ok ? "已保存 \(urls.count) 个视频" : "保存失败：\(error?.localizedDescription ?? "未知错误")")
             }
+        }
+    }
+
+    /// 从合成视频截取最后 3 秒（passthrough 保画质）作配对视频，并取最后一帧 JPEG 作实况主图。
+    private func exportLivePhoto(from videoURL: URL, done: @escaping (Data?, URL?) -> Void) {
+        let asset = AVURLAsset(url: videoURL)
+        let durationSec = CMTimeGetSeconds(asset.duration)
+        guard durationSec > 0.8 else { done(nil, nil); return }
+        let start = max(0, durationSec - 3)
+        let outURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("mov")
+        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
+            done(nil, nil); return
+        }
+        export.outputURL = outURL
+        export.outputFileType = .mov
+        export.timeRange = CMTimeRange(
+            start: CMTime(seconds: start, preferredTimescale: 600),
+            duration: CMTime(seconds: min(3, durationSec), preferredTimescale: 600))
+        export.exportAsynchronously {
+            let gen = AVAssetImageGenerator(asset: asset)
+            gen.appliesPreferredTrackTransform = true
+            var actual = CMTime.zero
+            let cg = try? gen.copyCGImage(
+                at: CMTime(seconds: durationSec - 0.05, preferredTimescale: 600), actualTime: &actual)
+            let jpeg = cg.flatMap { UIImage(cgImage: $0).jpegData(compressionQuality: 0.9) }
+            done(jpeg, export.status == .completed ? outURL : nil)
         }
     }
 
@@ -1304,6 +1406,7 @@ extension DualCameraManager: AVCaptureVideoDataOutputSampleBufferDelegate,
             // 合成帧：以 A 的帧为节拍，叠上 B 的最新一帧。预览和录像用同一块画布。
             if let a, let b, let canvas = renderCanvas(a: a, b: b, state: state) {
                 display(canvas)
+                liveCollector?.append(canvas)
                 if let w = writerComposite {
                     if !w.isStarted {
                         w.start(width: CVPixelBufferGetWidth(canvas),
@@ -1323,5 +1426,116 @@ extension DualCameraManager: AVCaptureVideoDataOutputSampleBufferDelegate,
                 w.append(pixelBuffer, at: pts)
             }
         }
+    }
+}
+
+// MARK: - 实况照片采集器
+
+/// 按下快门后采集约 1.5 秒的合成画面（缩成小 JPEG 存内存），写成配对视频。
+/// 帧回调（frameQueue）调 append，capture 的全局线程调 begin / finish，内部用锁保护。
+final class LivePhotoCollector {
+    struct Entry {
+        let data: Data
+        let size: CGSize
+    }
+
+    let duration: CFTimeInterval = 1.5
+    private let targetMaxWidth: CGFloat = 720
+    private let ci = CIContext(options: [.workingColorSpace: NSNull(), .cacheIntermediates: false])
+    private var entries: [Entry] = []
+    private var startTime: CFTimeInterval?
+    private let lock = NSLock()
+
+    func begin() {
+        lock.lock()
+        entries.removeAll()
+        startTime = CACurrentMediaTime()
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        startTime = nil
+        entries.removeAll()
+        lock.unlock()
+    }
+
+    func append(_ pixelBuffer: CVPixelBuffer) {
+        lock.lock()
+        guard let start = startTime else { lock.unlock(); return }
+        let now = CACurrentMediaTime()
+        guard now - start <= duration else { lock.unlock(); return }
+        lock.unlock()
+
+        let image = CIImage(cvPixelBuffer: pixelBuffer)
+        let extent = image.extent
+        guard extent.width > 1, extent.height > 1 else { return }
+        let s = targetMaxWidth / extent.width
+        let target = CGRect(x: 0, y: 0, width: extent.width * s, height: extent.height * s)
+        let scaled = image.transformed(by: CGAffineTransform(scaleX: s, y: s))
+        guard let cg = ci.createCGImage(scaled, from: target) else { return }
+        guard let data = UIImage(cgImage: cg).jpegData(compressionQuality: 0.8) else { return }
+
+        lock.lock()
+        guard startTime != nil else { lock.unlock(); return }
+        entries.append(Entry(data: data, size: target.size))
+        lock.unlock()
+    }
+
+    /// 把采集的帧写成 H.264 mov（30fps，从 0 开始）。
+    func finish() -> URL? {
+        lock.lock()
+        let captured = entries
+        startTime = nil
+        entries.removeAll()
+        lock.unlock()
+        guard !captured.isEmpty, let size = captured.first?.size else { return nil }
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("mov")
+        guard let writer = try? AVAssetWriter(outputURL: url, fileType: .mov) else { return nil }
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: Int(size.width),
+            AVVideoHeightKey: Int(size.height),
+            AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: Int(size.width * size.height * 1.5)]
+        ])
+        input.expectsMediaDataInRealTime = false
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: Int(size.width),
+            kCVPixelBufferHeightKey as String: Int(size.height)
+        ])
+        guard writer.canAdd(input) else { return nil }
+        writer.add(input)
+        guard writer.startWriting() else { return nil }
+        writer.startSession(atSourceTime: .zero)
+
+        for (i, entry) in captured.enumerated() {
+            while !input.isReadyForMoreMediaData { usleep(2000) }
+            guard let cg = UIImage(data: entry.data)?.cgImage else { continue }
+            var pb: CVPixelBuffer?
+            CVPixelBufferCreate(kCFAllocatorDefault, Int(size.width), Int(size.height),
+                                kCVPixelFormatType_32BGRA, nil, &pb)
+            guard let pb else { continue }
+            CVPixelBufferLockBaseAddress(pb, [])
+            if let ctx = CGContext(data: CVPixelBufferGetBaseAddress(pb),
+                                  width: Int(size.width), height: Int(size.height),
+                                  bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(pb),
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+                                    | CGBitmapInfo.byteOrder32Little.rawValue) {
+                ctx.draw(cg, in: CGRect(origin: .zero, size: size))
+            }
+            CVPixelBufferUnlockBaseAddress(pb, [])
+            adaptor.append(pb, withPresentationTime: CMTime(value: CMTimeValue(i), timescale: 30))
+        }
+
+        input.markAsFinished()
+        let sema = DispatchSemaphore(value: 0)
+        writer.finishWriting { sema.signal() }
+        _ = sema.wait(timeout: .now() + 5)
+        return writer.status == .completed ? url : nil
     }
 }
