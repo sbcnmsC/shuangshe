@@ -126,6 +126,7 @@ final class DualCameraManager: NSObject, ObservableObject {
     private var writerComposite: MovieWriter?
     private var writerA: MovieWriter?
     private var writerB: MovieWriter?
+    private var liveCapturePending = false
     private var canvasPool: CVPixelBufferPool?
     private var poolSize = CGSize.zero
 
@@ -1012,6 +1013,24 @@ final class DualCameraManager: NSObject, ObservableObject {
         }
     }
 
+    /// 实况模式：录制短片后生成带配对元数据的 Live Photo，而不是把普通视频冒充实况。
+    func livePhotoAction() {
+        if countdown != nil { cancelCountdown(); return }
+        guard isReady else { setStatus("相机尚未准备好"); return }
+        if isRecording { stopRecording(); return }
+        let begin = { [weak self] in
+            guard let self, self.isReady, !self.isRecording else { return }
+            self.liveCapturePending = true
+            self.startRecording()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                guard let self, self.isRecording, self.liveCapturePending else { return }
+                self.stopRecording()
+            }
+        }
+        if timerSeconds > 0 { startCountdown(timerSeconds, then: begin) }
+        else { begin() }
+    }
+
     func cycleTimer() {
         timerSeconds = timerSeconds == 0 ? 3 : (timerSeconds == 3 ? 10 : 0)
     }
@@ -1153,7 +1172,26 @@ final class DualCameraManager: NSObject, ObservableObject {
                 }
             }
             group.notify(queue: .global()) {
-                self.saveVideos(results.compactMap { $0 })
+                let urls = results.compactMap { $0 }
+                guard self.liveCapturePending else {
+                    self.saveVideos(urls)
+                    return
+                }
+                self.liveCapturePending = false
+                guard let source = results.first ?? nil else {
+                    self.setStatus("实况片段生成失败，未找到视频文件")
+                    return
+                }
+                LivePhotoConverter.shared.convertVideoToLivePhoto(from: source) { result in
+                    switch result {
+                    case .success:
+                        urls.forEach { try? FileManager.default.removeItem(at: $0) }
+                        self.setStatus("实况照片已保存到系统图库")
+                    case .failure(let error):
+                        self.setStatus("实况转换失败，改为保存普通视频：\\(error.localizedDescription)")
+                        self.saveVideos(urls)
+                    }
+                }
             }
         }
     }
