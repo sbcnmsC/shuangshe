@@ -80,6 +80,9 @@ final class DualCameraManager: NSObject, ObservableObject {
 
     private let sessionQueue = DispatchQueue(label: "dualcam.session")
     private let frameQueue = DispatchQueue(label: "dualcam.frames")
+    // Filter thumbnails never run on the live capture queue.
+    private let thumbnailQueue = DispatchQueue(label: "dualcam.filter-thumbnails", qos: .utility)
+    private let thumbnailCIContext = CIContext(options: [.workingColorSpace: NSNull(), .cacheIntermediates: false])
     private let paramQueue = DispatchQueue(label: "dualcam.params")
     private let outputA = AVCaptureVideoDataOutput()
     private let outputB = AVCaptureVideoDataOutput()
@@ -129,6 +132,9 @@ final class DualCameraManager: NSObject, ObservableObject {
     private var liveCapturePending = false
     private var canvasPool: CVPixelBufferPool?
     private var poolSize = CGSize.zero
+    // Cached because the composite preview always uses the same BGRA size until settings change.
+    private var displayFormatDescription: CMVideoFormatDescription?
+    private var displayFormatSize = CGSize.zero
 
     // 只在 paramQueue 上访问：点按对焦后保持对焦，直到画面内容明显变化
     private var focusHeld = false
@@ -946,43 +952,34 @@ final class DualCameraManager: NSObject, ObservableObject {
     // MARK: - 滤镜缩略图（用当前画面实时生成）
 
     func makeFilterThumbnails(_ completion: @escaping ([FilterPreset: UIImage]) -> Void) {
-        frameQueue.async {
-            self.lock.lock()
-            let a = self.bufferA
-            let b = self.bufferB
-            var snapshot = self.renderState
-            self.lock.unlock()
-            guard let a, let b else {
-                DispatchQueue.main.async { completion([:]) }
-                return
-            }
+        // Take a retained snapshot quickly, then do all thumbnail work off the frame queue.
+        lock.lock()
+        let a = bufferA
+        let b = bufferB
+        var state = renderState
+        lock.unlock()
 
-            // Preview the actual current composite layout. Remove the active filter first,
-            // so every preset is compared against the same live frame.
-            snapshot.filter = .original
-            snapshot.filterStrength = 0
-            let base = Compositor.render(a: a, b: b, state: snapshot)
-            let e = base.extent
-            let aspect: CGFloat = 3.0 / 4.0
-            var crop = e
-            if e.width / e.height > aspect {
-                let w = e.height * aspect
-                crop = CGRect(x: e.midX - w / 2, y: e.minY, width: w, height: e.height)
-            } else {
-                let h = e.width / aspect
-                crop = CGRect(x: e.minX, y: e.midY - h / 2, width: e.width, height: h)
-            }
-            let scale = min(120 / crop.width, 160 / crop.height)
-            let small = base.cropped(to: crop)
-                .transformed(by: CGAffineTransform(translationX: -crop.minX, y: -crop.minY))
-                .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-            let rect = CGRect(x: 0, y: 0, width: crop.width * scale, height: crop.height * scale)
+        guard let a, let b else {
+            DispatchQueue.main.async { completion([:]) }
+            return
+        }
+
+        thumbnailQueue.async {
+            // 120 x 160 thumbnails are more than enough for the strip. Downsample first,
+            // before the composite and all 12 filter chains, to avoid a full-resolution GPU burst.
+            state.filter = .original
+            state.filterStrength = 0
+            state.canvas = CGSize(width: 120, height: 160)
+            let smallA = Compositor.downsample(CIImage(cvPixelBuffer: a), maxDimension: 320)
+            let smallB = Compositor.downsample(CIImage(cvPixelBuffer: b), maxDimension: 320)
+            let base = Compositor.render(a: smallA, b: smallB, state: state)
+            let rect = CGRect(origin: .zero, size: state.canvas)
 
             var result: [FilterPreset: UIImage] = [:]
-            for f in FilterPreset.allCases {
-                let img = f.apply(to: small, strength: 1)
-                if let cg = self.ciContext.createCGImage(img, from: rect) {
-                    result[f] = UIImage(cgImage: cg)
+            for preset in FilterPreset.allCases {
+                let image = preset.apply(to: base, strength: 1).cropped(to: rect)
+                if let cg = self.thumbnailCIContext.createCGImage(image, from: rect) {
+                    result[preset] = UIImage(cgImage: cg)
                 }
             }
             DispatchQueue.main.async { completion(result) }
@@ -1286,7 +1283,14 @@ final class DualCameraManager: NSObject, ObservableObject {
         if canvasPool == nil || poolSize != state.canvas { rebuildPool(state.canvas) }
         guard let pool = canvasPool else { return nil }
         var pb: CVPixelBuffer?
-        guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb) == kCVReturnSuccess, let out = pb else { return nil }
+        let limits: [String: Any] = [kCVPixelBufferPoolAllocationThresholdKey as String: 6]
+        guard CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(
+            kCFAllocatorDefault, pool, limits as CFDictionary, &pb
+        ) == kCVReturnSuccess, let out = pb else {
+            // A short display/encoder backlog is normal; dropping this frame prevents
+            // the pixel-buffer pool from growing without bound.
+            return nil
+        }
         let image = Compositor.render(a: a, b: b, state: state)
         ciContext.render(image, to: out, bounds: CGRect(origin: .zero, size: state.canvas), colorSpace: nil)
         return out
@@ -1294,17 +1298,35 @@ final class DualCameraManager: NSObject, ObservableObject {
 
     /// 把合成帧送去预览显示（立即显示，不排队）。
     private func display(_ pixelBuffer: CVPixelBuffer) {
-        var format: CMVideoFormatDescription?
-        CMVideoFormatDescriptionCreateForImageBuffer(allocator: nil, imageBuffer: pixelBuffer,
-                                                     formatDescriptionOut: &format)
-        guard let format else { return }
-        var timing = CMSampleTimingInfo(duration: .invalid,
-                                        presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),
-                                        decodeTimeStamp: .invalid)
+        if displayLayer.status == .failed { displayLayer.flush() }
+        guard displayLayer.isReadyForMoreMediaData else { return }
+
+        let size = CGSize(width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
+        if displayFormatDescription == nil || displayFormatSize != size {
+            var format: CMVideoFormatDescription?
+            CMVideoFormatDescriptionCreateForImageBuffer(
+                allocator: kCFAllocatorDefault,
+                imageBuffer: pixelBuffer,
+                formatDescriptionOut: &format
+            )
+            displayFormatDescription = format
+            displayFormatSize = size
+        }
+        guard let format = displayFormatDescription else { return }
+
+        var timing = CMSampleTimingInfo(
+            duration: .invalid,
+            presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),
+            decodeTimeStamp: .invalid
+        )
         var sample: CMSampleBuffer?
-        CMSampleBufferCreateReadyWithImageBuffer(allocator: nil, imageBuffer: pixelBuffer,
-                                                 formatDescription: format, sampleTiming: &timing,
-                                                 sampleBufferOut: &sample)
+        CMSampleBufferCreateReadyWithImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: pixelBuffer,
+            formatDescription: format,
+            sampleTiming: &timing,
+            sampleBufferOut: &sample
+        )
         guard let sample else { return }
         if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true),
            CFArrayGetCount(attachments) > 0 {
@@ -1313,8 +1335,7 @@ final class DualCameraManager: NSObject, ObservableObject {
                                  Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
                                  Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
         }
-        if displayLayer.status == .failed { displayLayer.flush() }
-        if displayLayer.isReadyForMoreMediaData { displayLayer.enqueue(sample) }
+        displayLayer.enqueue(sample)
     }
 }
 
