@@ -4,6 +4,8 @@ name: Build IPA
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '.assistant-source-parts/**'
   workflow_dispatch:
 
 permissions:
