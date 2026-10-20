@@ -1,0 +1,41 @@
+name: Build DualCamLive
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'DualCamLive/**'
+      - '.github/workflows/build-dualcamlive.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: DualCamLive
+        run: xcodegen generate
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Build iOS app (unsigned)
+        working-directory: DualCamLive
+        run: |
+          set -o pipefail
+          xcodebuild -project DualCamLive.xcodeproj -scheme DualCamLive -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath ../build-dualcamlive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+      - name: Upload Xcode project and app build products
+        uses: actions/upload-artifact@v4
+        with:
+          name: DualCamLive-Xcode-and-build
+          path: |
+            DualCamLive/DualCamLive.xcodeproj
+            build-dualcamlive/Build/Products/Release-iphoneos/DualCamLive.app
+          if-no-files-found: error
