@@ -200,7 +200,12 @@ struct ContentView: View {
                         cam.finishPipDrag()
                     }
             )
-            .onTapGesture { swapViews() }
+            .onTapGesture {
+                cam.tapFocus(u: r.midX / max(rect.width, 1),
+                             v: r.midY / max(rect.height, 1))
+                showFocus(at: CGPoint(x: r.midX, y: r.midY))
+                swapViews()
+            }
             .position(x: r.midX, y: r.midY)
 
         if pipActive || (showPanel && tab == .pip) {
