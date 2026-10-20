@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
     paths:
-      - '.assistant-source-parts/**'
       - '.github/workflows/build-assistant-source.yml'
   workflow_dispatch:
 
@@ -42,6 +41,21 @@ jobs:
           PY
           mkdir -p source
           tar -xJf /tmp/DualCam-source.tar.xz -C source
+          python3 - <<'PY'
+          from pathlib import Path
+          project = Path("source/DualCam/DualCam.xcodeproj/project.pbxproj")
+          text = project.read_text()
+          bad = 'buildConfigurationList = F10000000000000000000002 /* Build configuration list for PBXNativeTarget "DualCam" */;'
+          good = 'buildConfigurationList = F10000000000000000000006 /* Build configuration list for PBXNativeTarget "DualCam" */;'
+          if bad in text:
+              text = text.replace(bad, good)
+              project.write_text(text)
+              print("Fixed Target build configuration list reference.")
+          elif good in text:
+              print("Target build configuration list reference is already fixed.")
+          else:
+              raise SystemExit("Could not locate the target build configuration list reference.")
+          PY
           test -f source/DualCam/DualCam.xcodeproj/project.pbxproj
           (cd source && zip -qry ../DualCam-Assistant-Source.zip DualCam)
 
