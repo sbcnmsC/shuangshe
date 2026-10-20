@@ -83,13 +83,23 @@ final class DualCameraManager: NSObject, ObservableObject {
     private let layerB: AVCaptureVideoPreviewLayer
 
     private let sessionQueue = DispatchQueue(label: "dualcam.session")
-    private let frameQueue = DispatchQueue(label: "dualcam.frames")
+    /// 主渲染队列：A 路的合成、预览、写录都在这里，用 userInteractive 保证实时。
+    private let frameQueue = DispatchQueue(label: "dualcam.frames", qos: .userInteractive)
+    /// B 路独立队列：只更新「最新帧」和写原片，绝不等 A 路的合成。
+    private let secondaryFrameQueue = DispatchQueue(label: "dualcam.frames.b", qos: .userInteractive)
+    /// 滤镜缩略图队列：缩略图渲染再也不会堵住实时预览。
+    private let thumbnailQueue = DispatchQueue(label: "dualcam.filter-thumbnails", qos: .utility)
     private let paramQueue = DispatchQueue(label: "dualcam.params")
     private let outputA = AVCaptureVideoDataOutput()
     private let outputB = AVCaptureVideoDataOutput()
     private let audioOutput = AVCaptureAudioDataOutput()
     /// 关闭颜色管理 + 不缓存中间结果：8-bit 管线里明显更省 GPU。
     private let ciContext = CIContext(options: [
+        .workingColorSpace: NSNull(),
+        .cacheIntermediates: false
+    ])
+    /// 缩略图用独立的 CIContext，和实时渲染互不干扰。
+    private let thumbnailCIContext = CIContext(options: [
         .workingColorSpace: NSNull(),
         .cacheIntermediates: false
     ])
@@ -132,6 +142,9 @@ final class DualCameraManager: NSObject, ObservableObject {
     private var writerB: MovieWriter?
     private var canvasPool: CVPixelBufferPool?
     private var poolSize = CGSize.zero
+    /// display() 缓存的格式描述（只在尺寸变化时重建，省掉每帧的 CMVideoFormatDescriptionCreate）。
+    private var displayFormatDescription: CMVideoFormatDescription?
+    private var displayFormatSize: CGSize?
     /// 实况照片采集器（capture 期间由帧回调喂合成帧，内部有锁保护）。
     private var liveCollector: LivePhotoCollector?
 
@@ -489,7 +502,8 @@ final class DualCameraManager: NSObject, ObservableObject {
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
             ]
             output.alwaysDiscardsLateVideoFrames = true
-            output.setSampleBufferDelegate(self, queue: frameQueue)
+            // A 路（主渲染）走 frameQueue；B 路走独立次级队列，不占用合成节拍。
+            output.setSampleBufferDelegate(self, queue: output === outputA ? frameQueue : secondaryFrameQueue)
             guard session.canAddOutput(output) else { return "无法添加视频输出" }
             session.addOutputWithNoConnections(output)
 
@@ -945,14 +959,15 @@ final class DualCameraManager: NSObject, ObservableObject {
     // MARK: - 滤镜缩略图（用当前画面实时生成）
 
     func makeFilterThumbnails(_ completion: @escaping ([FilterPreset: UIImage]) -> Void) {
-        frameQueue.async {
-            self.lock.lock()
-            let buf = self.renderState.swapped ? self.bufferB : self.bufferA
-            self.lock.unlock()
-            guard let buf else {
-                DispatchQueue.main.async { completion([:]) }
-                return
-            }
+        // 先在短锁里拿快照，全部渲染工作丢到 thumbnailQueue，绝不占用实时帧队列。
+        lock.lock()
+        let buf = renderState.swapped ? bufferB : bufferA
+        lock.unlock()
+        guard let buf else {
+            DispatchQueue.main.async { completion([:]) }
+            return
+        }
+        thumbnailQueue.async {
             let base = CIImage(cvPixelBuffer: buf)
             let e = base.extent
             let aspect: CGFloat = 3.0 / 4.0
@@ -973,7 +988,7 @@ final class DualCameraManager: NSObject, ObservableObject {
             var result: [FilterPreset: UIImage] = [:]
             for f in FilterPreset.allCases {
                 let img = f.apply(to: small, strength: 1)
-                if let cg = self.ciContext.createCGImage(img, from: rect) {
+                if let cg = self.thumbnailCIContext.createCGImage(img, from: rect) {
                     result[f] = UIImage(cgImage: cg)
                 }
             }
@@ -1333,7 +1348,11 @@ final class DualCameraManager: NSObject, ObservableObject {
         if canvasPool == nil || poolSize != state.canvas { rebuildPool(state.canvas) }
         guard let pool = canvasPool else { return nil }
         var pb: CVPixelBuffer?
-        guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb) == kCVReturnSuccess, let out = pb else { return nil }
+        // 池上限 6 个：显示/编码短暂积压时直接丢这一帧，避免缓冲池无界增长拖慢管线。
+        let limits: [String: Any] = [kCVPixelBufferPoolAllocationThresholdKey as String: 6]
+        guard CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(
+            kCFAllocatorDefault, pool, limits as CFDictionary, &pb
+        ) == kCVReturnSuccess, let out = pb else { return nil }
         let image = Compositor.render(a: a, b: b, state: state)
         ciContext.render(image, to: out, bounds: CGRect(origin: .zero, size: state.canvas), colorSpace: nil)
         return out
@@ -1341,15 +1360,25 @@ final class DualCameraManager: NSObject, ObservableObject {
 
     /// 把合成帧送去预览显示（立即显示，不排队）。
     private func display(_ pixelBuffer: CVPixelBuffer) {
-        var format: CMVideoFormatDescription?
-        CMVideoFormatDescriptionCreateForImageBuffer(allocator: nil, imageBuffer: pixelBuffer,
-                                                     formatDescriptionOut: &format)
-        guard let format else { return }
+        if displayLayer.status == .failed { displayLayer.flush() }
+        guard displayLayer.isReadyForMoreMediaData else { return }
+
+        let size = CGSize(width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
+        if displayFormatDescription == nil || displayFormatSize != size {
+            var format: CMVideoFormatDescription?
+            CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault,
+                                                        imageBuffer: pixelBuffer,
+                                                        formatDescriptionOut: &format)
+            displayFormatDescription = format
+            displayFormatSize = size
+        }
+        guard let format = displayFormatDescription else { return }
+
         var timing = CMSampleTimingInfo(duration: .invalid,
                                         presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),
                                         decodeTimeStamp: .invalid)
         var sample: CMSampleBuffer?
-        CMSampleBufferCreateReadyWithImageBuffer(allocator: nil, imageBuffer: pixelBuffer,
+        CMSampleBufferCreateReadyWithImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer,
                                                  formatDescription: format, sampleTiming: &timing,
                                                  sampleBufferOut: &sample)
         guard let sample else { return }
@@ -1360,8 +1389,7 @@ final class DualCameraManager: NSObject, ObservableObject {
                                  Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
                                  Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
         }
-        if displayLayer.status == .failed { displayLayer.flush() }
-        if displayLayer.isReadyForMoreMediaData { displayLayer.enqueue(sample) }
+        displayLayer.enqueue(sample)
     }
 }
 
@@ -1385,9 +1413,29 @@ extension DualCameraManager: AVCaptureVideoDataOutputSampleBufferDelegate,
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
 
+        // B 路只做「短锁更新最新帧 + 原片写入丢回主队列」，绝不等 A 路的合成。
+        if output === outputB {
+            lock.lock()
+            bufferB = pixelBuffer
+            let writeRaw = writerB != nil
+            let rate = recordFPS
+            lock.unlock()
+            if writeRaw {
+                frameQueue.async { [weak self] in
+                    guard let self, let w = self.writerB else { return }
+                    if !w.isStarted {
+                        w.start(width: CVPixelBufferGetWidth(pixelBuffer),
+                                height: CVPixelBufferGetHeight(pixelBuffer), at: pts,
+                                pixelFormat: CVPixelBufferGetPixelFormatType(pixelBuffer), fps: rate)
+                    }
+                    w.append(pixelBuffer, at: pts)
+                }
+            }
+            return
+        }
+
         lock.lock()
         if output === outputA { bufferA = pixelBuffer }
-        else if output === outputB { bufferB = pixelBuffer }
         let a = bufferA, b = bufferB
         let state = renderState
         let rate = recordFPS
@@ -1404,26 +1452,22 @@ extension DualCameraManager: AVCaptureVideoDataOutputSampleBufferDelegate,
                 w.append(pixelBuffer, at: pts)
             }
             // 合成帧：以 A 的帧为节拍，叠上 B 的最新一帧。预览和录像用同一块画布。
-            if let a, let b, let canvas = renderCanvas(a: a, b: b, state: state) {
-                display(canvas)
-                liveCollector?.append(canvas)
-                if let w = writerComposite {
-                    if !w.isStarted {
-                        w.start(width: CVPixelBufferGetWidth(canvas),
-                                height: CVPixelBufferGetHeight(canvas), at: pts,
-                                pixelFormat: kCVPixelFormatType_32BGRA, fps: rate)
+            if let a, let b {
+                let canvas = autoreleasepool {
+                    renderCanvas(a: a, b: b, state: state)
+                }
+                if let canvas {
+                    display(canvas)
+                    liveCollector?.append(canvas)
+                    if let w = writerComposite {
+                        if !w.isStarted {
+                            w.start(width: CVPixelBufferGetWidth(canvas),
+                                    height: CVPixelBufferGetHeight(canvas), at: pts,
+                                    pixelFormat: kCVPixelFormatType_32BGRA, fps: rate)
+                        }
+                        w.append(canvas, at: pts)
                     }
-                    w.append(canvas, at: pts)
                 }
-            }
-        } else if output === outputB {
-            if let w = writerB {
-                if !w.isStarted {
-                    w.start(width: CVPixelBufferGetWidth(pixelBuffer),
-                            height: CVPixelBufferGetHeight(pixelBuffer), at: pts,
-                            pixelFormat: CVPixelBufferGetPixelFormatType(pixelBuffer), fps: rate)
-                }
-                w.append(pixelBuffer, at: pts)
             }
         }
     }
