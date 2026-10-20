@@ -24,6 +24,7 @@ jobs:
 
       - name: Build (unsigned, for sideloading)
         shell: bash
+        continue-on-error: true
         run: |
           set -o pipefail
           xcodebuild \
@@ -35,7 +36,15 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build
+            build 2>&1 | tee build.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
 
       - name: Package IPA
         run: |
