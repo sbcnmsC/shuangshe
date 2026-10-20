@@ -78,3 +78,8 @@
 - 新增 `MediaGalleryView.swift`，需要照片读取权限；`project.yml` 已补充权限用途说明。
 
 注意：实况照片元数据与 PhotoKit 导入行为受 iOS 版本影响，必须在真实 iPhone 上验证。当前环境未运行 Xcode 真机测试；如果系统拒绝配对资源，会显示转换错误，拍摄模式会回退保存普通视频，不会把普通视频伪装成 Live Photo。
+
+
+## UI performance profile
+
+The `feature/live-photo-gallery-camera-ux` branch intentionally replaces Liquid Glass / Material blur controls with solid dark fills and thin strokes. The goal is to reduce interface blur and glass compositing while the dual-camera preview is running. This is a UI cost reduction, not a measured camera-FPS guarantee; test thermal state, frame drops and battery draw on the target iPhone.
