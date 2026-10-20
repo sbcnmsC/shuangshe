@@ -1,6 +1,6 @@
 import AVFoundation
 
-/// 一个 .mov 文件的写入器：1 路视频 + 可选音频。
+/// 一个 .mov 文件的写入器：1 路视频（优先 HEVC）+ 可选音频。
 /// 所有方法都应在同一个串行队列里调用（DualCameraManager 的 frameQueue）。
 final class MovieWriter {
     let url: URL
@@ -23,24 +23,44 @@ final class MovieWriter {
         self.audioSettings = audioSettings
     }
 
-    /// 收到第一帧视频时调用，此时才知道画面尺寸和起始时间。
-    func start(width: Int, height: Int, at pts: CMTime) {
+    private func videoSettings(codec: AVVideoCodecType, width: Int, height: Int, fps: Int) -> [String: Any] {
+        // 码率按「每像素每帧」估算：HEVC 约 0.14 bit，1080x1920@30 ≈ 8.7 Mbps
+        let bitrate = max(3_000_000, Int(Double(width * height) * Double(fps) * 0.14))
+        return [
+            AVVideoCodecKey: codec,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoColorPropertiesKey: [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
+            ],
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: bitrate,
+                AVVideoExpectedSourceFrameRateKey: fps,
+                AVVideoMaxKeyFrameIntervalKey: fps * 2
+            ]
+        ]
+    }
+
+    /// 收到第一帧视频时调用，此时才知道画面尺寸、像素格式和起始时间。
+    func start(width: Int, height: Int, at pts: CMTime, pixelFormat: OSType, fps: Int) {
         guard !isStarted, !failed else { return }
         do {
             let w = try AVAssetWriter(outputURL: url, fileType: .mov)
 
-            let v = AVAssetWriterInput(mediaType: .video, outputSettings: [
-                AVVideoCodecKey: AVVideoCodecType.h264,
-                AVVideoWidthKey: width,
-                AVVideoHeightKey: height,
-                AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: width * height * 4]
-            ])
+            var v = AVAssetWriterInput(mediaType: .video,
+                                       outputSettings: videoSettings(codec: .hevc, width: width, height: height, fps: fps))
+            if !w.canAdd(v) {
+                v = AVAssetWriterInput(mediaType: .video,
+                                       outputSettings: videoSettings(codec: .h264, width: width, height: height, fps: fps))
+            }
             v.expectsMediaDataInRealTime = true
 
             let ad = AVAssetWriterInputPixelBufferAdaptor(
                 assetWriterInput: v,
                 sourcePixelBufferAttributes: [
-                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                    kCVPixelBufferPixelFormatTypeKey as String: pixelFormat,
                     kCVPixelBufferWidthKey as String: width,
                     kCVPixelBufferHeightKey as String: height
                 ])
@@ -65,14 +85,6 @@ final class MovieWriter {
         } catch {
             failed = true
         }
-    }
-
-    /// 合成视频用：从写入器的缓冲池里取一块空白画布。
-    func newPixelBuffer() -> CVPixelBuffer? {
-        guard isStarted, let pool = adaptor?.pixelBufferPool else { return nil }
-        var pb: CVPixelBuffer?
-        CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb)
-        return pb
     }
 
     func append(_ pixelBuffer: CVPixelBuffer, at pts: CMTime) {
