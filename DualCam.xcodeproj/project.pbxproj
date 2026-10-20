@@ -1,0 +1,124 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* DualCamApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* DualCamApp.swift */; };
+		A10000000000000000000002 /* CameraLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* CameraLayout.swift */; };
+		A10000000000000000000003 /* CameraPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* CameraPreview.swift */; };
+		A10000000000000000000004 /* CameraSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* CameraSessionManager.swift */; };
+		A10000000000000000000005 /* PhotoComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* PhotoComposer.swift */; };
+		A10000000000000000000006 /* PhotoLibrarySaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* PhotoLibrarySaver.swift */; };
+		A10000000000000000000007 /* CameraStageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000007 /* CameraStageView.swift */; };
+		A10000000000000000000008 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* ContentView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		B10000000000000000000001 /* DualCamApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DualCamApp.swift; sourceTree = "<group>"; };
+		B10000000000000000000002 /* CameraLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraLayout.swift; sourceTree = "<group>"; };
+		B10000000000000000000003 /* CameraPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreview.swift; sourceTree = "<group>"; };
+		B10000000000000000000004 /* CameraSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraSessionManager.swift; sourceTree = "<group>"; };
+		B10000000000000000000005 /* PhotoComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoComposer.swift; sourceTree = "<group>"; };
+		B10000000000000000000006 /* PhotoLibrarySaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibrarySaver.swift; sourceTree = "<group>"; };
+		B10000000000000000000007 /* CameraStageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraStageView.swift; sourceTree = "<group>"; };
+		B10000000000000000000008 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B10000000000000000000009 /* DualCam.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DualCam.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000010 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = SOURCE_ROOT; };
+		B10000000000000000000011 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
+		B10000000000000000000012 /* PRODUCT_SPEC.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = PRODUCT_SPEC.md; sourceTree = "<group>"; };
+		B10000000000000000000013 /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C10000000000000000000001 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		D10000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				D10000000000000000000002 /* DualCam */,
+				D10000000000000000000003 /* docs */,
+				B10000000000000000000010 /* README.md */,
+				B10000000000000000000011 /* LICENSE */,
+				B10000000000000000000013 /* .gitignore */,
+				B10000000000000000000009 /* DualCam.app */,
+			);
+			sourceTree = "<group>";
+		};
+		D10000000000000000000002 /* DualCam */ = {
+			isa = PBXGroup;
+			path = DualCam;
+			sourceTree = "<group>";
+			children = (
+				E10000000000000000000001 /* App */,
+				E10000000000000000000002 /* Camera */,
+				E10000000000000000000003 /* Models */,
+				E10000000000000000000004 /* Services */,
+				E10000000000000000000005 /* Views */,
+			);
+		};
+		D10000000000000000000003 /* docs */ = {isa = PBXGroup; path = docs; sourceTree = "<group>"; children = (B10000000000000000000012 /* PRODUCT_SPEC.md */,); };
+		E10000000000000000000001 /* App */ = {isa = PBXGroup; path = App; sourceTree = "<group>"; children = (B10000000000000000000001 /* DualCamApp.swift */,); };
+		E10000000000000000000002 /* Camera */ = {isa = PBXGroup; path = Camera; sourceTree = "<group>"; children = (B10000000000000000000003 /* CameraPreview.swift */, B10000000000000000000004 /* CameraSessionManager.swift */,); };
+		E10000000000000000000003 /* Models */ = {isa = PBXGroup; path = Models; sourceTree = "<group>"; children = (B10000000000000000000002 /* CameraLayout.swift */,); };
+		E10000000000000000000004 /* Services */ = {isa = PBXGroup; path = Services; sourceTree = "<group>"; children = (B10000000000000000000005 /* PhotoComposer.swift */, B10000000000000000000006 /* PhotoLibrarySaver.swift */,); };
+		E10000000000000000000005 /* Views */ = {isa = PBXGroup; path = Views; sourceTree = "<group>"; children = (B10000000000000000000007 /* CameraStageView.swift */, B10000000000000000000008 /* ContentView.swift */,); };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		F10000000000000000000001 /* DualCam */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = G10000000000000000000002 /* Build configuration list for PBXNativeTarget "DualCam" */;
+			buildPhases = (C10000000000000000000002 /* Sources */, C10000000000000000000001 /* Frameworks */, C10000000000000000000003 /* Resources */,);
+			buildRules = ();
+			dependencies = ();
+			name = DualCam;
+			productName = DualCam;
+			productReference = B10000000000000000000009 /* DualCam.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		H10000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 1500; LastUpgradeCheck = 1500; TargetAttributes = {F10000000000000000000001 = {CreatedOnToolsVersion = 15.0; }; }; };
+			buildConfigurationList = G10000000000000000000001 /* Build configuration list for PBXProject */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			knownRegions = (en, Base, zh_CN,);
+			mainGroup = D10000000000000000000001;
+			productRefGroup = D10000000000000000000001;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (F10000000000000000000001 /* DualCam */,);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C10000000000000000000002 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000003, A10000000000000000000004, A10000000000000000000005, A10000000000000000000006, A10000000000000000000007, A10000000000000000000008,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C10000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		I10000000000000000000001 /* Debug project */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; }; name = Debug; };
+		I10000000000000000000002 /* Release project */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; }; name = Release; };
+		I10000000000000000000003 /* Debug target */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_NSCameraUsageDescription = "DualCam 需要使用前置和后置摄像头进行双摄拍摄。"; INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "DualCam 需要将合成照片保存到系统照片图库。"; INFOPLIST_KEY_CFBundleDisplayName = DualCam; INFOPLIST_KEY_CFBundleShortVersionString = 0.1.0; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.example.DualCam; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+		I10000000000000000000004 /* Release target */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_NSCameraUsageDescription = "DualCam 需要使用前置和后置摄像头进行双摄拍摄。"; INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "DualCam 需要将合成照片保存到系统照片图库。"; INFOPLIST_KEY_CFBundleDisplayName = DualCam; INFOPLIST_KEY_CFBundleShortVersionString = 0.1.0; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.example.DualCam; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		G10000000000000000000001 /* Build configuration list for PBXProject */ = {isa = XCConfigurationList; buildConfigurations = (I10000000000000000000001, I10000000000000000000002,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		G10000000000000000000002 /* Build configuration list for PBXNativeTarget "DualCam" */ = {isa = XCConfigurationList; buildConfigurations = (I10000000000000000000003, I10000000000000000000004,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+
+	};
+	rootObject = H10000000000000000000001 /* Project object */;
+}
