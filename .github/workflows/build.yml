@@ -7,6 +7,7 @@ on:
     paths-ignore:
       - '.assistant-source-parts/**'
       - 'AssistantGeneratedDualCam/**'
+      - 'DualCamLive/**'
       - '.github/workflows/build-assistant-source.yml'
       - '.github/workflows/build.yml'
   workflow_dispatch:
