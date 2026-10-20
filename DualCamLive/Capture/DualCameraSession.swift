@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import CoreVideo
 import UIKit
 
@@ -17,6 +18,9 @@ final class DualCameraSession: NSObject,
     private let compositor: MetalCompositor
     private var layout: CompositeLayout
     private let recordAudio: Bool
+    private let filterProcessor = FilterProcessor()
+    private var activeFilter: FilterCatalog = .original
+    private var filterStrength: CGFloat = 1
 
     private let backOutput = AVCaptureVideoDataOutput()
     private let frontOutput = AVCaptureVideoDataOutput()
@@ -44,6 +48,13 @@ final class DualCameraSession: NSObject,
 
     func setLayout(_ layout: CompositeLayout) {
         dataQueue.async { self.layout = layout }
+    }
+
+    func setFilter(_ filter: FilterCatalog, strength: CGFloat) {
+        dataQueue.async {
+            self.activeFilter = filter
+            self.filterStrength = min(max(strength, 0), 1)
+        }
     }
 
     // Debug tuning (IOS_HANDOFF §6): forward to the compositor on the data queue,
@@ -230,7 +241,8 @@ final class DualCameraSession: NSObject,
         // Back frame drives the composite cadence and the PTS.
         let primary = layout.primaryFront ? (latestFront ?? pixelBuffer) : pixelBuffer
         let secondary = layout.primaryFront ? pixelBuffer : latestFront
-        guard let composed = compositor.compose(primary: primary, secondary: secondary, layout: layout) else { return }
+        guard let rawComposite = compositor.compose(primary: primary, secondary: secondary, layout: layout) else { return }
+        let composed = filterProcessor.process(rawComposite, filter: activeFilter, strength: filterStrength) ?? rawComposite
         latestComposite = composed
         onFrame?(composed)
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
