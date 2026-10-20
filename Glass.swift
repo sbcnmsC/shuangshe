@@ -1,71 +1,54 @@
 import SwiftUI
 
-// MARK: - Liquid Glass（动态玻璃）
-//
-// iOS 26+ 使用系统的 glassEffect；更早的系统自动回退到毛玻璃材质。
-// 用 #if compiler(>=6.2) 包起来，所以即使用旧版 Xcode 编译也不会报错（只是没有玻璃效果）。
-
-#if compiler(>=6.2)
-@available(iOS 26.0, *)
-enum LiquidGlassStyle {
-    static func make(tint: Color?, interactive: Bool) -> Glass {
-        var g: Glass = .regular
-        if let tint { g = g.tint(tint.opacity(0.75)) }
-        if interactive { g = g.interactive() }
-        return g
-    }
-}
-#endif
-
+/// Lightweight camera controls. Deliberately avoids system glass effects and material blur:
+/// dual-camera capture already uses significant GPU bandwidth, so controls use solid fills
+/// and a thin stroke instead of sampling the preview behind each control.
 extension View {
-    /// 把视图做成 Liquid Glass 的形状。tint 用于选中 / 强调状态。
-    @ViewBuilder
-    func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = true) -> some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            self.glassEffect(LiquidGlassStyle.make(tint: tint, interactive: interactive), in: shape)
-        } else {
-            self.legacyGlass(shape, tint: tint)
-        }
-        #else
-        self.legacyGlass(shape, tint: tint)
-        #endif
+    func liquidGlass<S: Shape>(_ shape: S,
+                               tint: Color? = nil,
+                               interactive: Bool = true) -> some View {
+        self
+            .background {
+                shape.fill(tint.map { $0.opacity(0.96) } ?? Color(white: 0.10).opacity(0.94))
+            }
+            .overlay {
+                shape.stroke(
+                    tint.map { $0.opacity(0.82) } ?? Color.white.opacity(0.18),
+                    lineWidth: 0.7
+                )
+            }
+            .contentShape(shape)
     }
 
-    /// iOS 26 之前的回退：系统毛玻璃 + 高光描边。
+    /// Kept as a compatibility shim for existing call sites; never uses Material blur.
     func legacyGlass<S: Shape>(_ shape: S, tint: Color?) -> some View {
         self
-            .background(.ultraThinMaterial, in: shape)
-            .background((tint ?? Color.clear).opacity(0.55), in: shape)
-            .overlay(shape.stroke(Color.white.opacity(0.20), lineWidth: 0.6))
+            .background {
+                shape.fill(tint.map { $0.opacity(0.96) } ?? Color(white: 0.10).opacity(0.94))
+            }
+            .overlay {
+                shape.stroke(
+                    tint.map { $0.opacity(0.82) } ?? Color.white.opacity(0.18),
+                    lineWidth: 0.7
+                )
+            }
     }
 }
 
-/// 一组玻璃元素的容器：iOS 26 下相邻的玻璃会互相融合 / 变形，
-/// 同一容器里的玻璃共享一次采样，也更省性能。
+/// Lightweight grouping container. Intentionally does not create a GlassEffectContainer.
 struct GlassGroup<Content: View>: View {
-    private let spacing: CGFloat
     private let content: Content
 
     init(spacing: CGFloat = 12, @ViewBuilder content: () -> Content) {
-        self.spacing = spacing
         self.content = content()
     }
 
     var body: some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer(spacing: spacing) { content }
-        } else {
-            content
-        }
-        #else
         content
-        #endif
     }
 }
 
-/// 三分参考线
+/// Rule-of-thirds guide.
 struct GridLines: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()

@@ -26,9 +26,9 @@
 注意：免费 Apple ID 签名的 App **每 7 天会过期**，到期后重新用 Sideloadly 装一次即可（数据不丢）。Sideloadly 也支持自动续签，具体看它的说明。
 
 ## 四、App 怎么用
-**界面**：整体是 iOS 26 的 Liquid Glass（动态玻璃）风格，按钮和面板是半透明玻璃，按下有流动反馈；iOS 26 以下自动回退成毛玻璃。预览显示的就是最终合成画面，**滤镜、小窗位置、画幅都是所见即所得**。
+**界面**：采用轻量实色控件与细描边，不使用玻璃模糊，以减少双摄预览期间的额外合成开销。预览显示的就是最终合成画面，**滤镜、小窗位置、画幅都是所见即所得**。
 
-- **顶部**：闪光灯 / 定时器（关 → 3 秒 → 10 秒）/ 布局切换（画中画 ↔ 上下分屏）；右侧是镜头组合（`前+后`、`广+超广`、`广+长焦`，点一下循环切换）；中间显示输出分辨率和帧率，录像时变成计时。
+- **顶部**：闪光灯 / 定时器（关 → 3 秒 → 10 秒）/ 布局切换（画中画 ↔ 上下分屏）；右侧镜头组合可点击循环，也可点下拉菜单直接选择（`前+后`、`广+超广`、`广+长焦`）；中间显示输出分辨率和帧率，录像时变成计时。
 - **小窗（画中画）**：
   - 手指拖动小窗到任意位置，松手自动吸附到边缘 / 中线（可关）
   - 双指在小窗上捏合缩放，或拖小窗右下角的小把手缩放
@@ -44,7 +44,7 @@
   - 保存两路原片、弱光增亮、视频防抖、前置镜像、三分参考线
 - **对焦 / 曝光**：点按画面对焦并测光（点小窗就对小窗镜头对焦）；画面内容明显变化后自动回到连续对焦；点按后上下滑动实时调曝光补偿；双指捏合变焦。
 - **变焦**：快门上方的倍率按钮（超广角显示 0.5x，长焦按实际倍率），主 / 副镜头各自记住自己的变焦。
-- **拍照 / 录像**：底部「拍照 / 录像」切换（点击或左右滑动），中间快门；设了定时器会先倒数，再点一下取消。
+- **拍照 / 录像 / 实况**：底部模式可点击或左右滑动切换，中间快门；设了定时器会先倒数，倒数时再次点快门可取消。图库支持预览视频和选择视频转换实况。
 - 作品保存在系统「照片」App：拍照是高质量 JPEG，录像是 HEVC（H.265）。录像时可随时切布局、拖小窗、换滤镜，合成视频实时跟随。
 - 只支持竖屏。
 
@@ -67,3 +67,19 @@
 - `project.yml`：XcodeGen 工程描述（含 3 个权限说明，仅竖屏）
 - `.github/workflows/build.yml`：云端编译并发布 Release 的流程（macos-26 / Xcode 26）
 - `LayerHost.swift`：旧版预览用的文件，现在已经用不到，可以删掉（留着也不影响编译）
+
+
+## 相机增强分支（2026-10）
+
+分支 `feature/live-photo-gallery-camera-ux` 增加：
+- 相机模式增加「实况」：录制约 3 秒合成画面，尝试生成 Live Photo 配对静态图和 MOV，使用 PhotoKit 保存。
+- 增加系统照片图库入口：缩略图按需加载；可查看照片、识别视频，并从视频菜单选择「转换为实况照片」。
+- 新增 `LivePhotoConverter.swift`，负责提取静帧、写入 content identifier / still-image-time 元数据并保存配对资源。
+- 新增 `MediaGalleryView.swift`，需要照片读取权限；`project.yml` 已补充权限用途说明。
+
+注意：实况照片元数据与 PhotoKit 导入行为受 iOS 版本影响，必须在真实 iPhone 上验证。当前环境未运行 Xcode 真机测试；如果系统拒绝配对资源，会显示转换错误，拍摄模式会回退保存普通视频，不会把普通视频伪装成 Live Photo。
+
+
+## UI performance profile
+
+The `feature/live-photo-gallery-camera-ux` branch intentionally replaces Liquid Glass / Material blur controls with solid dark fills and thin strokes. The goal is to reduce interface blur and glass compositing while the dual-camera preview is running. This is a UI cost reduction, not a measured camera-FPS guarantee; test thermal state, frame drops and battery draw on the target iPhone.

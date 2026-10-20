@@ -4,6 +4,7 @@ import AVFoundation
 enum CaptureKind: String, CaseIterable, Identifiable {
     case photo = "拍照"
     case video = "录像"
+    case live = "实况"
     var id: String { rawValue }
 }
 
@@ -15,6 +16,7 @@ struct ContentView: View {
     @State private var kind: CaptureKind = .photo
     @State private var showPanel = false
     @State private var tab: PanelTab = .pip
+    @State private var showGallery = false
 
     // 预览手势状态
     @State private var pinchBase: CGFloat?
@@ -53,6 +55,7 @@ struct ContentView: View {
                         .liquidGlass(Capsule(), interactive: false)
                         .frame(maxWidth: geo.size.width - 40)
                         .position(x: geo.size.width / 2, y: rect.minY + 46)
+                        .allowsHitTesting(false)
                         .transition(.opacity)
                 }
             }
@@ -73,6 +76,7 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, phase in
             phase == .active ? cam.resume() : cam.pause()
         }
+        .sheet(isPresented: $showGallery) { MediaGalleryView() }
     }
 
     // MARK: - 预览
@@ -160,10 +164,12 @@ struct ContentView: View {
     @ViewBuilder
     private func pipOverlay(rect: CGRect) -> some View {
         let r = cam.pip.rect(in: rect.size)
-        let shape = RoundedRectangle(cornerRadius: cam.pip.cornerRadius(for: r.size), style: .continuous)
+        let shape: AnyShape = cam.pip.shape == .circle
+            ? AnyShape(Circle())
+            : AnyShape(RoundedRectangle(cornerRadius: cam.pip.cornerRadius(for: r.size), style: .continuous))
 
         shape
-            .strokeBorder(Color.white.opacity(pipActive ? 0.9 : 0), lineWidth: 2)
+            .stroke(Color.white.opacity(pipActive ? 0.9 : 0), lineWidth: 2)
             .contentShape(shape)
             .frame(width: r.width, height: r.height)
             .gesture(
@@ -194,7 +200,13 @@ struct ContentView: View {
                         cam.finishPipDrag()
                     }
             )
-            .onTapGesture { swapViews() }
+            .onTapGesture {
+                // The tapped inset becomes the main view after swapping; focus that lens
+                // in its new main-view region so swap handling does not reset its focus.
+                swapViews()
+                cam.tapFocus(u: 0.5, v: 0.5)
+                showFocus(at: CGPoint(x: rect.width / 2, y: rect.height / 2))
+            }
             .position(x: r.midX, y: r.midY)
 
         if pipActive || (showPanel && tab == .pip) {
@@ -358,28 +370,56 @@ struct ContentView: View {
         .accessibilityLabel("定时器")
     }
 
+    /// Tap the label to cycle quickly; use the adjacent menu to choose a specific pair.
     private var lensButton: some View {
-        Button {
-            haptic(.light)
-            let all = CameraMode.allCases
-            let idx = all.firstIndex(of: cam.mode) ?? 0
-            cam.mode = all[(idx + 1) % all.count]
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.triangle.2.circlepath.camera")
-                Text(cam.mode.shortName)
-                    .font(.system(size: 13, weight: .semibold))
+        HStack(spacing: 0) {
+            Button {
+                haptic(.light)
+                let all = CameraMode.allCases
+                let idx = all.firstIndex(of: cam.mode) ?? 0
+                cam.mode = all[(idx + 1) % all.count]
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.triangle.2.circlepath.camera")
+                    Text(cam.mode.shortName)
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .font(.system(size: 15, weight: .semibold))
+                .padding(.leading, 13)
+                .padding(.trailing, 8)
+                .frame(height: 44)
+                .contentShape(Rectangle())
             }
-            .font(.system(size: 16, weight: .semibold))
-            .padding(.horizontal, 14)
-            .frame(height: 44)
+            .buttonStyle(.plain)
+            .accessibilityLabel("循环切换镜头组合")
+
+            Menu {
+                ForEach(CameraMode.allCases) { candidate in
+                    Button {
+                        cam.mode = candidate
+                    } label: {
+                        if candidate == cam.mode {
+                            Label(candidate.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(candidate.rawValue)
+                        }
+                    }
+                    .disabled(cam.isRecording)
+                }
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 30, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("选择镜头组合")
+            .disabled(cam.isRecording)
         }
-        .buttonStyle(.plain)
         .foregroundStyle(Color.white)
         .liquidGlass(Capsule())
         .disabled(cam.isRecording)
         .opacity(cam.isRecording ? 0.4 : 1)
-        .accessibilityLabel("切换镜头组合")
     }
 
     @ViewBuilder
@@ -394,6 +434,7 @@ struct ContentView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .liquidGlass(Capsule(), interactive: false)
+            .allowsHitTesting(false)
             .transition(.opacity)
         } else {
             Text("\(Int(cam.canvasSize.width))p · \(cam.activeFPS)")
@@ -485,13 +526,16 @@ struct ContentView: View {
         }
         .padding(3)
         .liquidGlass(Capsule())
-        .gesture(
-            DragGesture(minimumDistance: 20)
+        // Simultaneous swipe avoids stealing taps from individual mode buttons.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 28)
                 .onEnded { value in
-                    guard !cam.isRecording, abs(value.translation.width) > 36 else { return }
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        kind = value.translation.width < 0 ? .video : .photo
-                    }
+                    guard !cam.isRecording, abs(value.translation.width) > 42,
+                          abs(value.translation.width) > abs(value.translation.height) else { return }
+                    let all = CaptureKind.allCases
+                    let current = all.firstIndex(of: kind) ?? 0
+                    let next = value.translation.width < 0 ? min(current + 1, all.count - 1) : max(current - 1, 0)
+                    withAnimation(.easeInOut(duration: 0.16)) { kind = all[next] }
                 }
         )
     }
@@ -499,7 +543,7 @@ struct ContentView: View {
     private var shutterRow: some View {
         GlassGroup(spacing: 16) {
             HStack {
-                glassCircle("arrow.up.arrow.down", label: "互换主副画面") { swapViews() }
+                glassCircle("photo.on.rectangle.angled", label: "照片图库") { showGallery = true }
                 Spacer()
                 shutter
                 Spacer()
@@ -530,7 +574,7 @@ struct ContentView: View {
     private var shutter: some View {
         Button {
             haptic(.medium)
-            cam.shutterAction(video: kind == .video)
+            if kind == .live { cam.livePhotoAction() } else { cam.shutterAction(video: kind == .video) }
         } label: {
             ZStack {
                 Circle().stroke(Color.white, lineWidth: 4).frame(width: 78, height: 78)
@@ -540,6 +584,10 @@ struct ContentView: View {
                         .foregroundStyle(Color.white)
                 } else if kind == .photo {
                     Circle().fill(Color.white).frame(width: 64, height: 64)
+                } else if kind == .live {
+                    Image(systemName: "livephoto")
+                        .font(.system(size: 34, weight: .medium))
+                        .foregroundStyle(.white)
                 } else if cam.isRecording {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(Color.red)
@@ -553,7 +601,7 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .disabled(!cam.isReady)
         .opacity(cam.isReady ? 1 : 0.4)
-        .accessibilityLabel(kind == .photo ? "拍照" : (cam.isRecording ? "停止录像" : "开始录像"))
+        .accessibilityLabel(kind == .photo ? "拍照" : (kind == .live ? "拍摄实况照片" : (cam.isRecording ? "停止录像" : "开始录像")))
     }
 
     // MARK: - 工具

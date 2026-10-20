@@ -25,16 +25,21 @@ enum Compositor {
         var width = resolution.shortSide
         if source.width > 0 { width = min(width, source.width) }
         if source.height > 0 { width = min(width, source.height * ratio) }
-        width = max(320, (width / 2).rounded(.down) * 2)
+        width = max(2, (width / 2).rounded(.down) * 2)
         let height = (width / ratio / 2).rounded() * 2
         return CGSize(width: width, height: height)
     }
 
     static func render(a: CVPixelBuffer, b: CVPixelBuffer, state s: RenderState) -> CIImage {
+        render(a: CIImage(cvPixelBuffer: a), b: CIImage(cvPixelBuffer: b), state: s)
+    }
+
+    /// Same composite pipeline for image-backed sources (used by tiny filter previews).
+    static func render(a: CIImage, b: CIImage, state s: RenderState) -> CIImage {
         let size = s.canvas
         let bounds = CGRect(origin: .zero, size: size)
-        let imgA = CIImage(cvPixelBuffer: a)
-        let imgB = CIImage(cvPixelBuffer: b)
+        let imgA = a
+        let imgB = b
         let (main, second) = s.swapped ? (imgB, imgA) : (imgA, imgB)
         let W = size.width, H = size.height
 
@@ -54,6 +59,15 @@ enum Compositor {
 
         out = s.filter.apply(to: out.cropped(to: bounds), strength: s.filterStrength)
         return out.cropped(to: bounds)
+    }
+
+    /// Lazily downsamples a source before composition so filters never process a full camera frame.
+    static func downsample(_ image: CIImage, maxDimension: CGFloat) -> CIImage {
+        let extent = image.extent
+        let longest = max(extent.width, extent.height)
+        guard longest > maxDimension, longest > 0 else { return image }
+        let factor = maxDimension / longest
+        return image.transformed(by: CGAffineTransform(scaleX: factor, y: factor))
     }
 
     // MARK: 小窗
@@ -87,18 +101,9 @@ enum Compositor {
             ])
         }
 
-        // 柔和的投影，让小窗从画面里「浮」起来
-        let shadowMask = mask
-            .applyingGaussianBlur(sigma: Double(16 * k))
-            .transformed(by: CGAffineTransform(translationX: 0, y: -8 * k))
-        let shadowColor = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.32))
-            .cropped(to: shadowMask.extent)
-        let shadow = shadowColor.applyingFilter("CIBlendWithAlphaMask", parameters: [
-            kCIInputBackgroundImageKey: CIImage.empty(),
-            kCIInputMaskImageKey: shadowMask
-        ])
-
-        return layer.composited(over: shadow)
+        // Skip per-frame Gaussian shadow blur. The inset border provides separation
+        // without an extra blur pass on every preview/recording frame.
+        return layer
     }
 
     /// 等比放大并居中裁切，铺满目标矩形（等同 resizeAspectFill）。
