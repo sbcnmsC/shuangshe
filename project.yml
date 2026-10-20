@@ -22,6 +22,10 @@ targets:
           - build.yml
           - project.yml
           - Config
+          - DualCamLive
+          - AssistantGeneratedDualCam
+          - .assistant-source-parts
+          - .github
     info:
       path: Config/Info.plist
       properties:
