@@ -22,6 +22,10 @@ targets:
           - build.yml
           - project.yml
           - Config
+          - .github
+          - .assistant-source-parts
+          - AssistantGeneratedDualCam
+          - DualCamLive
     info:
       path: Config/Info.plist
       properties:
@@ -29,6 +33,8 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         NSCameraUsageDescription: 需要使用相机进行双摄像头录制
         NSMicrophoneUsageDescription: 需要使用麦克风录制声音
         NSPhotoLibraryAddUsageDescription: 需要把录制的视频保存到相册
