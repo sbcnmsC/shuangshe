@@ -1188,7 +1188,7 @@ final class DualCameraManager: NSObject, ObservableObject {
                         urls.forEach { try? FileManager.default.removeItem(at: $0) }
                         self.setStatus("实况照片已保存到系统图库")
                     case .failure(let error):
-                        self.setStatus("实况转换失败，改为保存普通视频：\\(error.localizedDescription)")
+                        self.setStatus("实况转换失败，改为保存普通视频：\(error.localizedDescription)")
                         self.saveVideos(urls)
                     }
                 }
