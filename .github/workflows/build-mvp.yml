@@ -24,7 +24,6 @@ jobs:
 
       - name: Build (unsigned, for sideloading)
         shell: bash
-        continue-on-error: true
         run: |
           set -o pipefail
           xcodebuild \
@@ -48,8 +47,10 @@ jobs:
 
       - name: Package IPA
         run: |
-          APP=$(find build/Build/Products -maxdepth 3 -name "DualCam.app" | head -n 1)
+          # -target 构建产物在 build/Release-iphoneos 下（不经 derivedData 的 Build/Products）
+          APP=$(find build -maxdepth 6 -type d -name "DualCam.app" | head -n 1)
           echo "App bundle: $APP"
+          if [ -z "$APP" ]; then echo "未找到 DualCam.app"; exit 1; fi
           mkdir -p Payload
           cp -R "$APP" Payload/
           zip -qry DualCam.ipa Payload
