@@ -201,10 +201,11 @@ struct ContentView: View {
                     }
             )
             .onTapGesture {
-                cam.tapFocus(u: r.midX / max(rect.width, 1),
-                             v: r.midY / max(rect.height, 1))
-                showFocus(at: CGPoint(x: r.midX, y: r.midY))
+                // The tapped inset becomes the main view after swapping; focus that lens
+                // in its new main-view region so swap handling does not reset its focus.
                 swapViews()
+                cam.tapFocus(u: 0.5, v: 0.5)
+                showFocus(at: CGPoint(x: rect.width / 2, y: rect.height / 2))
             }
             .position(x: r.midX, y: r.midY)
 
