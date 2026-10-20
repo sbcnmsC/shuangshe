@@ -55,6 +55,7 @@ struct ContentView: View {
                         .liquidGlass(Capsule(), interactive: false)
                         .frame(maxWidth: geo.size.width - 40)
                         .position(x: geo.size.width / 2, y: rect.minY + 46)
+                        .allowsHitTesting(false)
                         .transition(.opacity)
                 }
             }
@@ -163,10 +164,12 @@ struct ContentView: View {
     @ViewBuilder
     private func pipOverlay(rect: CGRect) -> some View {
         let r = cam.pip.rect(in: rect.size)
-        let shape = RoundedRectangle(cornerRadius: cam.pip.cornerRadius(for: r.size), style: .continuous)
+        let shape: AnyShape = cam.pip.shape == .circle
+            ? AnyShape(Circle())
+            : AnyShape(RoundedRectangle(cornerRadius: cam.pip.cornerRadius(for: r.size), style: .continuous))
 
         shape
-            .strokeBorder(Color.white.opacity(pipActive ? 0.9 : 0), lineWidth: 2)
+            .stroke(Color.white.opacity(pipActive ? 0.9 : 0), lineWidth: 2)
             .contentShape(shape)
             .frame(width: r.width, height: r.height)
             .gesture(
@@ -361,28 +364,56 @@ struct ContentView: View {
         .accessibilityLabel("定时器")
     }
 
+    /// Tap the label to cycle quickly; use the adjacent menu to choose a specific pair.
     private var lensButton: some View {
-        Button {
-            haptic(.light)
-            let all = CameraMode.allCases
-            let idx = all.firstIndex(of: cam.mode) ?? 0
-            cam.mode = all[(idx + 1) % all.count]
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.triangle.2.circlepath.camera")
-                Text(cam.mode.shortName)
-                    .font(.system(size: 13, weight: .semibold))
+        HStack(spacing: 0) {
+            Button {
+                haptic(.light)
+                let all = CameraMode.allCases
+                let idx = all.firstIndex(of: cam.mode) ?? 0
+                cam.mode = all[(idx + 1) % all.count]
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.triangle.2.circlepath.camera")
+                    Text(cam.mode.shortName)
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .font(.system(size: 15, weight: .semibold))
+                .padding(.leading, 13)
+                .padding(.trailing, 8)
+                .frame(height: 44)
+                .contentShape(Rectangle())
             }
-            .font(.system(size: 16, weight: .semibold))
-            .padding(.horizontal, 14)
-            .frame(height: 44)
+            .buttonStyle(.plain)
+            .accessibilityLabel("循环切换镜头组合")
+
+            Menu {
+                ForEach(CameraMode.allCases) { candidate in
+                    Button {
+                        cam.mode = candidate
+                    } label: {
+                        if candidate == cam.mode {
+                            Label(candidate.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(candidate.rawValue)
+                        }
+                    }
+                    .disabled(cam.isRecording)
+                }
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 30, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("选择镜头组合")
+            .disabled(cam.isRecording)
         }
-        .buttonStyle(.plain)
         .foregroundStyle(Color.white)
         .liquidGlass(Capsule())
         .disabled(cam.isRecording)
         .opacity(cam.isRecording ? 0.4 : 1)
-        .accessibilityLabel("切换镜头组合")
     }
 
     @ViewBuilder
@@ -397,6 +428,7 @@ struct ContentView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .liquidGlass(Capsule(), interactive: false)
+            .allowsHitTesting(false)
             .transition(.opacity)
         } else {
             Text("\(Int(cam.canvasSize.width))p · \(cam.activeFPS)")
@@ -488,14 +520,16 @@ struct ContentView: View {
         }
         .padding(3)
         .liquidGlass(Capsule())
-        .gesture(
-            DragGesture(minimumDistance: 20)
+        // Simultaneous swipe avoids stealing taps from individual mode buttons.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 28)
                 .onEnded { value in
-                    guard !cam.isRecording, abs(value.translation.width) > 36 else { return }
+                    guard !cam.isRecording, abs(value.translation.width) > 42,
+                          abs(value.translation.width) > abs(value.translation.height) else { return }
                     let all = CaptureKind.allCases
                     let current = all.firstIndex(of: kind) ?? 0
                     let next = value.translation.width < 0 ? min(current + 1, all.count - 1) : max(current - 1, 0)
-                    withAnimation(.easeInOut(duration: 0.2)) { kind = all[next] }
+                    withAnimation(.easeInOut(duration: 0.16)) { kind = all[next] }
                 }
         )
     }
