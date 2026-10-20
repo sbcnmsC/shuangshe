@@ -31,7 +31,8 @@ targets:
           - UIInterfaceOrientationPortrait
         NSCameraUsageDescription: 需要使用相机进行双摄像头录制
         NSMicrophoneUsageDescription: 需要使用麦克风录制声音
-        NSPhotoLibraryAddUsageDescription: 需要把录制的视频保存到相册
+        NSPhotoLibraryAddUsageDescription: 需要把照片、视频和实况照片保存到系统图库
+        NSPhotoLibraryUsageDescription: 需要浏览照片图库并选择视频转换为实况照片
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.dualcam.app
