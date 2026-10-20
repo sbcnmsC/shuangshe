@@ -31,10 +31,15 @@ enum Compositor {
     }
 
     static func render(a: CVPixelBuffer, b: CVPixelBuffer, state s: RenderState) -> CIImage {
+        render(a: CIImage(cvPixelBuffer: a), b: CIImage(cvPixelBuffer: b), state: s)
+    }
+
+    /// Same composite pipeline for image-backed sources (used by tiny filter previews).
+    static func render(a: CIImage, b: CIImage, state s: RenderState) -> CIImage {
         let size = s.canvas
         let bounds = CGRect(origin: .zero, size: size)
-        let imgA = CIImage(cvPixelBuffer: a)
-        let imgB = CIImage(cvPixelBuffer: b)
+        let imgA = a
+        let imgB = b
         let (main, second) = s.swapped ? (imgB, imgA) : (imgA, imgB)
         let W = size.width, H = size.height
 
@@ -54,6 +59,15 @@ enum Compositor {
 
         out = s.filter.apply(to: out.cropped(to: bounds), strength: s.filterStrength)
         return out.cropped(to: bounds)
+    }
+
+    /// Lazily downsamples a source before composition so filters never process a full camera frame.
+    static func downsample(_ image: CIImage, maxDimension: CGFloat) -> CIImage {
+        let extent = image.extent
+        let longest = max(extent.width, extent.height)
+        guard longest > maxDimension, longest > 0 else { return image }
+        let factor = maxDimension / longest
+        return image.transformed(by: CGAffineTransform(scaleX: factor, y: factor))
     }
 
     // MARK: 小窗
