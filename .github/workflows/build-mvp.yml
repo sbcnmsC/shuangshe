@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   build:
@@ -26,17 +27,24 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          xcodebuild \
-            -project DualCam.xcodeproj \
-            -target DualCam \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tee build.log
-          exit ${PIPESTATUS[0]}
+          for attempt in 1 2 3; do
+            if xcodebuild \
+              -project DualCam.xcodeproj \
+              -target DualCam \
+              -configuration Release \
+              -sdk iphoneos \
+              -destination 'generic/platform=iOS' \
+              -derivedDataPath build \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              build 2>&1 | tee build.log; then
+              break
+            fi
+            echo "=== 构建失败，重试 $attempt/3 ==="
+            sleep 8
+          done
+          grep -q "BUILD SUCCEEDED" build.log || { echo "构建未成功"; exit 1; }
 
       - name: Upload build log
         if: always()
