@@ -1035,6 +1035,10 @@ final class DualCameraManager: NSObject, ObservableObject {
             guard let self, self.isReady, !self.isRecording else { return }
             self.liveCapturePending = true
             self.startRecording()
+            guard self.isRecording else {
+                self.liveCapturePending = false
+                return
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
                 guard let self, self.isRecording, self.liveCapturePending else { return }
                 self.stopRecording()
