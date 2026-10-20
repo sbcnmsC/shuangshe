@@ -4,6 +4,7 @@ import AVFoundation
 enum CaptureKind: String, CaseIterable, Identifiable {
     case photo = "拍照"
     case video = "录像"
+    case live = "实况"
     var id: String { rawValue }
 }
 
@@ -15,6 +16,7 @@ struct ContentView: View {
     @State private var kind: CaptureKind = .photo
     @State private var showPanel = false
     @State private var tab: PanelTab = .pip
+    @State private var showGallery = false
 
     // 预览手势状态
     @State private var pinchBase: CGFloat?
@@ -73,6 +75,7 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, phase in
             phase == .active ? cam.resume() : cam.pause()
         }
+        .sheet(isPresented: $showGallery) { MediaGalleryView() }
     }
 
     // MARK: - 预览
@@ -499,7 +502,7 @@ struct ContentView: View {
     private var shutterRow: some View {
         GlassGroup(spacing: 16) {
             HStack {
-                glassCircle("arrow.up.arrow.down", label: "互换主副画面") { swapViews() }
+                glassCircle("photo.on.rectangle.angled", label: "照片图库") { showGallery = true }
                 Spacer()
                 shutter
                 Spacer()
@@ -530,7 +533,7 @@ struct ContentView: View {
     private var shutter: some View {
         Button {
             haptic(.medium)
-            cam.shutterAction(video: kind == .video)
+            if kind == .live { cam.livePhotoAction() } else { cam.shutterAction(video: kind == .video) }
         } label: {
             ZStack {
                 Circle().stroke(Color.white, lineWidth: 4).frame(width: 78, height: 78)
@@ -540,6 +543,10 @@ struct ContentView: View {
                         .foregroundStyle(Color.white)
                 } else if kind == .photo {
                     Circle().fill(Color.white).frame(width: 64, height: 64)
+                } else if kind == .live {
+                    Image(systemName: "livephoto")
+                        .font(.system(size: 34, weight: .medium))
+                        .foregroundStyle(.white)
                 } else if cam.isRecording {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(Color.red)
@@ -553,7 +560,7 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .disabled(!cam.isReady)
         .opacity(cam.isReady ? 1 : 0.4)
-        .accessibilityLabel(kind == .photo ? "拍照" : (cam.isRecording ? "停止录像" : "开始录像"))
+        .accessibilityLabel(kind == .photo ? "拍照" : (kind == .live ? "拍摄实况照片" : (cam.isRecording ? "停止录像" : "开始录像")))
     }
 
     // MARK: - 工具
