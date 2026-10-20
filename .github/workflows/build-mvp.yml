@@ -45,6 +45,17 @@ jobs:
           name: build-log
           path: build.log
 
+      - name: Report failure log to issue
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f build.log ]; then
+            { printf '构建失败 commit %s\n\n```\n' "${{ github.sha }}"; tail -c 2500 build.log; printf '\n```\n'; } > /tmp/body.md
+            gh issue create --title "mvp 构建失败 ${{ github.run_id }}" --body-file /tmp/body.md --repo "${{ github.repository }}" || true
+          fi
+
       - name: Package IPA
         run: |
           # -target 构建产物在 build/Release-iphoneos 下（不经 derivedData 的 Build/Products）
