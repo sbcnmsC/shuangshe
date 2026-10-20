@@ -492,9 +492,10 @@ struct ContentView: View {
             DragGesture(minimumDistance: 20)
                 .onEnded { value in
                     guard !cam.isRecording, abs(value.translation.width) > 36 else { return }
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        kind = value.translation.width < 0 ? .video : .photo
-                    }
+                    let all = CaptureKind.allCases
+                    let current = all.firstIndex(of: kind) ?? 0
+                    let next = value.translation.width < 0 ? min(current + 1, all.count - 1) : max(current - 1, 0)
+                    withAnimation(.easeInOut(duration: 0.2)) { kind = all[next] }
                 }
         )
     }
