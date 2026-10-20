@@ -373,8 +373,9 @@ final class DualCameraManager: NSObject, ObservableObject {
             for f in fpsList {
                 failure = build(o, maxWidth: width, fps: f)
                 if failure == nil { success = true; usedFPS = f; break outer }
-                // Format availability at 4K / 60 fps varies by device. Retry lower
-                // formats and frame rates before surfacing a hard failure.
+                // Resource-cost failures can recover with a smaller format or lower FPS.
+                // Missing hardware / unsupported camera pairs cannot, so stop retrying.
+                if case .other = failure! { break outer }
             }
         }
 
