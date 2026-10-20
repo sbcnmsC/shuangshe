@@ -25,7 +25,7 @@ enum Compositor {
         var width = resolution.shortSide
         if source.width > 0 { width = min(width, source.width) }
         if source.height > 0 { width = min(width, source.height * ratio) }
-        width = max(320, (width / 2).rounded(.down) * 2)
+        width = max(2, (width / 2).rounded(.down) * 2)
         let height = (width / ratio / 2).rounded() * 2
         return CGSize(width: width, height: height)
     }
