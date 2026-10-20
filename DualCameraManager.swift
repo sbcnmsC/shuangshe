@@ -35,7 +35,7 @@ final class DualCameraManager: NSObject, ObservableObject {
 
     // 输出画面
     @Published var aspect: AspectPreset = .tall { didSet { updateCanvas() } }
-    @Published var resolution: ResolutionPreset = .p1080 { didSet { onQualityChanged() } }
+    @Published var resolution: ResolutionPreset = .p720 { didSet { onQualityChanged() } }
     @Published var fps: FPSOption = .f30 { didSet { onQualityChanged() } }
     @Published private(set) var canvasSize = CGSize(width: 1080, height: 1920)
     @Published private(set) var activeFPS = 30
@@ -79,7 +79,8 @@ final class DualCameraManager: NSObject, ObservableObject {
     private let layerB: AVCaptureVideoPreviewLayer
 
     private let sessionQueue = DispatchQueue(label: "dualcam.session")
-    private let frameQueue = DispatchQueue(label: "dualcam.frames")
+    private let frameQueue = DispatchQueue(label: "dualcam.frames", qos: .userInteractive)
+    private let secondaryFrameQueue = DispatchQueue(label: "dualcam.secondary-frames", qos: .userInteractive)
     // Filter thumbnails never run on the live capture queue.
     private let thumbnailQueue = DispatchQueue(label: "dualcam.filter-thumbnails", qos: .utility)
     private let thumbnailCIContext = CIContext(options: [.workingColorSpace: NSNull(), .cacheIntermediates: false])
@@ -124,6 +125,8 @@ final class DualCameraManager: NSObject, ObservableObject {
     private var audioSettings: [String: Any]?
     private var recordFPS = 30
     private var redrawScheduled = false
+    // Guarded by lock. Raw dual-stream writes are optional and intentionally off by default.
+    private var rawStreamsRecording = false
 
     // 只在 frameQueue 上访问
     private var writerComposite: MovieWriter?
@@ -192,7 +195,7 @@ final class DualCameraManager: NSObject, ObservableObject {
             filter = p.filter
             filterStrength = p.filterStrength
             aspect = p.aspect
-            resolution = p.resolution
+            resolution = p.resolution == .highest ? .p1080 : p.resolution
             fps = p.fps
             lowLight = p.lowLight
             stabilize = p.stabilize
@@ -237,7 +240,9 @@ final class DualCameraManager: NSObject, ObservableObject {
         lock.lock()
         renderState = s
         lock.unlock()
-        requestRedraw()
+        // Camera frames are continuous. Re-rendering here as well as on every frame
+        // doubles GPU work during gestures; only refresh immediately when capture is stopped.
+        if !session.isRunning { requestRedraw() }
     }
 
     private func updateCanvas() {
@@ -496,7 +501,7 @@ final class DualCameraManager: NSObject, ObservableObject {
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
             ]
             output.alwaysDiscardsLateVideoFrames = true
-            output.setSampleBufferDelegate(self, queue: frameQueue)
+            output.setSampleBufferDelegate(self, queue: output === outputA ? frameQueue : secondaryFrameQueue)
             guard session.canAddOutput(output) else { return "无法添加视频输出" }
             session.addOutputWithNoConnections(output)
 
@@ -1147,7 +1152,10 @@ final class DualCameraManager: NSObject, ObservableObject {
     func startRecording() {
         guard isReady, !isRecording else { return }
         let raw = saveRaw
-        lock.lock(); let settings = audioSettings; lock.unlock()
+        lock.lock()
+        let settings = audioSettings
+        rawStreamsRecording = raw
+        lock.unlock()
 
         isRecording = true
         elapsed = 0
@@ -1166,6 +1174,7 @@ final class DualCameraManager: NSObject, ObservableObject {
     func stopRecording() {
         guard isRecording else { return }
         isRecording = false
+        lock.lock(); rawStreamsRecording = false; lock.unlock()
         timer?.invalidate()
         timer = nil
 
@@ -1348,7 +1357,7 @@ extension DualCameraManager: AVCaptureVideoDataOutputSampleBufferDelegate,
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
 
-        // 音频：分发给所有正在录的文件
+        // Audio writer access stays serialized with video appends.
         if output === audioOutput {
             writerComposite?.appendAudio(sampleBuffer)
             writerA?.appendAudio(sampleBuffer)
@@ -1358,6 +1367,28 @@ extension DualCameraManager: AVCaptureVideoDataOutputSampleBufferDelegate,
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+
+        // The secondary-camera delegate only updates the latest frame under a short lock.
+        // It must never wait for A's Core Image composite to finish.
+        if output === outputB {
+            lock.lock()
+            bufferB = pixelBuffer
+            let writeRaw = rawStreamsRecording
+            lock.unlock()
+            if writeRaw {
+                frameQueue.async { [weak self] in
+                    guard let self, let writer = self.writerB else { return }
+                    if !writer.isStarted {
+                        writer.start(width: CVPixelBufferGetWidth(pixelBuffer),
+                                     height: CVPixelBufferGetHeight(pixelBuffer), at: pts,
+                                     pixelFormat: CVPixelBufferGetPixelFormatType(pixelBuffer),
+                                     fps: self.recordFPS)
+                    }
+                    writer.append(pixelBuffer, at: pts)
+                }
+            }
+            return
+        }
 
         lock.lock()
         if output === outputA { bufferA = pixelBuffer }
@@ -1378,25 +1409,21 @@ extension DualCameraManager: AVCaptureVideoDataOutputSampleBufferDelegate,
                 w.append(pixelBuffer, at: pts)
             }
             // 合成帧：以 A 的帧为节拍，叠上 B 的最新一帧。预览和录像用同一块画布。
-            if let a, let b, let canvas = renderCanvas(a: a, b: b, state: state) {
-                display(canvas)
-                if let w = writerComposite {
-                    if !w.isStarted {
-                        w.start(width: CVPixelBufferGetWidth(canvas),
-                                height: CVPixelBufferGetHeight(canvas), at: pts,
-                                pixelFormat: kCVPixelFormatType_32BGRA, fps: rate)
+            if let a, let b {
+                let canvas = autoreleasepool {
+                    renderCanvas(a: a, b: b, state: state)
+                }
+                if let canvas {
+                    display(canvas)
+                    if let w = writerComposite {
+                        if !w.isStarted {
+                            w.start(width: CVPixelBufferGetWidth(canvas),
+                                    height: CVPixelBufferGetHeight(canvas), at: pts,
+                                    pixelFormat: kCVPixelFormatType_32BGRA, fps: rate)
+                        }
+                        w.append(canvas, at: pts)
                     }
-                    w.append(canvas, at: pts)
                 }
-            }
-        } else if output === outputB {
-            if let w = writerB {
-                if !w.isStarted {
-                    w.start(width: CVPixelBufferGetWidth(pixelBuffer),
-                            height: CVPixelBufferGetHeight(pixelBuffer), at: pts,
-                            pixelFormat: CVPixelBufferGetPixelFormatType(pixelBuffer), fps: rate)
-                }
-                w.append(pixelBuffer, at: pts)
             }
         }
     }
