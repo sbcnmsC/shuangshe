@@ -172,6 +172,8 @@ struct ControlPanel: View {
                       disabled: cam.filter == .original)
         }
         .onAppear {
+            // Reuse thumbnails when the user switches away and back to this tab.
+            guard thumbs.isEmpty else { return }
             cam.makeFilterThumbnails { thumbs = $0 }
         }
     }
