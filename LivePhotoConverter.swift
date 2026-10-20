@@ -295,7 +295,7 @@ final class LivePhotoConverter {
         guard reader.canAdd(output) else { throw ConversionError.readerSetup("无法读取\(mediaType.rawValue)轨道") }
         reader.add(output)
 
-        let formatHint = track.formatDescriptions.first
+        let formatHint = track.formatDescriptions.first.map { $0 as! CMFormatDescription }
         let input = AVAssetWriterInput(mediaType: mediaType, outputSettings: nil, sourceFormatHint: formatHint)
         input.expectsMediaDataInRealTime = false
         if mediaType == .video { input.transform = track.preferredTransform }
