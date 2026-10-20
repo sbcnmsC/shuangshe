@@ -201,7 +201,7 @@ final class LivePhotoConverter {
 
         let transferQueue = DispatchQueue(label: "com.dualcam.livephoto.transfer",
                                           qos: .userInitiated,
-                                          attributes: .concurrent)
+                                          attributes: [])
         let group = DispatchGroup()
         let errorLock = NSLock()
         var transferError: Error?
