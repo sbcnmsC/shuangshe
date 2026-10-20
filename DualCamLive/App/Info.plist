@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDisplayName</key><string>DualCamLive</string>
+  <key>CFBundleIdentifier</key><string>com.example.dualcamlive.app</string>
+  <key>CFBundleName</key><string>DualCamLive</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSRequiresIPhoneOS</key><true/>
+  <key>NSCameraUsageDescription</key><string>需要使用摄像头进行双摄预览、拍照和录像。</string>
+  <key>NSMicrophoneUsageDescription</key><string>录像时使用麦克风录制声音。</string>
+  <key>NSPhotoLibraryAddUsageDescription</key><string>将照片和视频保存到系统照片图库。</string>
+  <key>NSPhotoLibraryUsageDescription</key><string>访问照片图库以验证和导入实况照片。</string>
+  <key>UILaunchScreen</key><dict/>
+  <key>UISupportedInterfaceOrientations</key>
+  <array><string>UIInterfaceOrientationPortrait</string></array>
+</dict>
+</plist>
